@@ -13,6 +13,9 @@ Queen\ Kalila.pck
 # macOS
 .DS_Store
 
+# Local build output from deploy.sh
+.build/
+
 # Xcode build products and user-specific state
 build/
 DerivedData/
