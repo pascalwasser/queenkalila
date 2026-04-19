@@ -60,6 +60,12 @@ const KITCHEN_BTN_CENTER = Vector2(195.0, 430.0)
 const KITCHEN_BTN_RADIUS = 38.0
 const FURNISH_BTN_CENTER = Vector2(255.0, 370.0)
 const FURNISH_BTN_RADIUS = 38.0
+
+const NPC_POS = Vector2(420.0, -300.0)
+const FLOWER_POS = Vector2(-550.0, 380.0)
+const NPC_TALK_RANGE = 80.0
+const FLOWER_PICK_RANGE = 55.0
+const QUEST_REWARD_WOOD = 10
 const ROOM_NAMES = ["Throne Room", "Library", "Gallery", "Royal Chamber"]
 const ROOM_0_ITEMS = [
 	{id = "throne",    label = "Throne",       wood = 10},
@@ -152,6 +158,15 @@ var furnish_menu_open := false
 var furnish_menu_layer: CanvasLayer = null
 var exit_palace_idx := 0
 
+# Quest: flower delivery
+var quest_state := "waiting"  # "waiting" | "carrying" | "done"
+var quest_npc_node: Node2D = null
+var quest_flower_node: Node2D = null
+var quest_dialog_layer: CanvasLayer = null
+var quest_near_npc := false
+var quest_near_flower := false
+var quest_carried_flower_node: Node2D = null
+
 var joystick_touch_id := -1
 var joystick_origin := Vector2.ZERO
 var joystick_base: Polygon2D
@@ -182,6 +197,7 @@ func _ready() -> void:
 	_create_initial_trees()
 	_create_initial_berries()
 	_create_initial_mushrooms()
+	_create_quest()
 	_create_ui()
 	_create_joystick()
 
@@ -1766,6 +1782,7 @@ func _physics_process(delta: float) -> void:
 		_update_nearest_mushroom()
 		_update_palace_proximity()
 		_check_palace_entry()
+		_update_quest()
 		_refresh_buttons()
 
 
@@ -1829,6 +1846,171 @@ func _update_palace_proximity() -> void:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+# ── Quest: flower delivery ─────────────────────────────────────────────────────
+
+func _create_quest() -> void:
+	quest_npc_node = _make_npc_node()
+	quest_npc_node.position = NPC_POS
+	add_child(quest_npc_node)
+
+	quest_flower_node = _make_flower_node()
+	quest_flower_node.position = FLOWER_POS
+	add_child(quest_flower_node)
+
+
+func _make_npc_node() -> Node2D:
+	var n := Node2D.new()
+	var body := ColorRect.new()
+	body.color = Color(0.85, 0.65, 0.40)
+	body.size = Vector2(18, 22)
+	body.position = Vector2(-9, -11)
+	n.add_child(body)
+	var head := Polygon2D.new()
+	head.color = Color(0.90, 0.72, 0.50)
+	head.polygon = _circle_polygon(9)
+	head.position = Vector2(0, -20)
+	n.add_child(head)
+	var hat := Polygon2D.new()
+	hat.color = Color(0.40, 0.60, 0.30)
+	hat.polygon = PackedVector2Array([Vector2(0,-16), Vector2(-10,-5), Vector2(10,-5)])
+	hat.position = Vector2(0, -27)
+	n.add_child(hat)
+	n.z_index = 5
+	return n
+
+
+func _make_flower_node() -> Node2D:
+	var f := Node2D.new()
+	var stem := ColorRect.new()
+	stem.color = Color(0.25, 0.65, 0.20)
+	stem.size = Vector2(3, 14)
+	stem.position = Vector2(-1, 0)
+	f.add_child(stem)
+	for angle in [0.0, 72.0, 144.0, 216.0, 288.0]:
+		var petal := Polygon2D.new()
+		petal.color = Color(0.95, 0.30, 0.60)
+		petal.polygon = _circle_polygon(6)
+		var rad := deg_to_rad(angle)
+		petal.position = Vector2(cos(rad) * 8, sin(rad) * 8 - 10)
+		f.add_child(petal)
+	var center := Polygon2D.new()
+	center.color = Color(1.0, 0.90, 0.10)
+	center.polygon = _circle_polygon(5)
+	center.position = Vector2(0, -10)
+	f.add_child(center)
+	f.z_index = 5
+	return f
+
+
+func _update_quest() -> void:
+	if quest_state == "done":
+		var was_near := quest_near_npc
+		quest_near_npc = (
+			is_instance_valid(quest_npc_node)
+			and queen.position.distance_to(NPC_POS) < NPC_TALK_RANGE
+		)
+		quest_near_flower = false
+		if quest_near_npc != was_near:
+			_refresh_quest_dialog()
+		return
+
+	var prev_near_npc := quest_near_npc
+	var prev_near_flower := quest_near_flower
+
+	quest_near_npc = (
+		is_instance_valid(quest_npc_node)
+		and queen.position.distance_to(NPC_POS) < NPC_TALK_RANGE
+	)
+	quest_near_flower = (
+		quest_state == "waiting"
+		and is_instance_valid(quest_flower_node)
+		and queen.position.distance_to(FLOWER_POS) < FLOWER_PICK_RANGE
+	)
+
+	# Pick up flower
+	if quest_near_flower:
+		quest_flower_node.queue_free()
+		quest_flower_node = null
+		quest_state = "carrying"
+		quest_near_flower = false
+		_attach_carried_flower()
+
+	# Deliver flower
+	if quest_state == "carrying" and quest_near_npc:
+		quest_state = "done"
+		_drop_carried_flower()
+		tree_inventory += QUEST_REWARD_WOOD
+		_update_ui()
+
+	if quest_near_npc != prev_near_npc or quest_near_flower != prev_near_flower:
+		_refresh_quest_dialog()
+
+
+func _attach_carried_flower() -> void:
+	quest_carried_flower_node = _make_flower_node()
+	quest_carried_flower_node.scale = Vector2(0.6, 0.6)
+	quest_carried_flower_node.position = Vector2(-26, -18)
+	quest_carried_flower_node.z_index = 11
+	queen.add_child(quest_carried_flower_node)
+	_refresh_quest_dialog()
+
+
+func _drop_carried_flower() -> void:
+	if quest_carried_flower_node != null and is_instance_valid(quest_carried_flower_node):
+		quest_carried_flower_node.queue_free()
+	quest_carried_flower_node = null
+	_refresh_quest_dialog()
+
+
+func _refresh_quest_dialog() -> void:
+	if quest_dialog_layer != null and is_instance_valid(quest_dialog_layer):
+		quest_dialog_layer.queue_free()
+	quest_dialog_layer = null
+
+	var msg := ""
+	if quest_near_npc:
+		match quest_state:
+			"waiting":
+				msg = "Please help me!\nI need the special\nflower that grows\nto the south-west."
+			"carrying":
+				msg = "You found it!\nPlease bring\nit to me!"
+			"done":
+				msg = "Thank you so much!\nHere, take 10 wood\nas a gift!"
+	elif quest_near_flower and quest_state == "waiting":
+		msg = "A special flower!\nPick it up?"
+
+	if msg == "":
+		return
+
+	quest_dialog_layer = CanvasLayer.new()
+	add_child(quest_dialog_layer)
+
+	var bubble := PanelContainer.new()
+	bubble.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	bubble.offset_top = 60
+	bubble.offset_left = -120
+	bubble.offset_right = 120
+	quest_dialog_layer.add_child(bubble)
+
+	var vbox := VBoxContainer.new()
+	bubble.add_child(vbox)
+
+	var label := Label.new()
+	label.text = msg
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", 20)
+	label.add_theme_color_override("font_color", Color(0.1, 0.05, 0.0))
+	vbox.add_child(label)
+
+	if quest_state == "done" and quest_near_npc:
+		var timer := get_tree().create_timer(3.0)
+		timer.timeout.connect(func() -> void:
+			if quest_dialog_layer != null and is_instance_valid(quest_dialog_layer):
+				quest_dialog_layer.queue_free()
+				quest_dialog_layer = null
+		)
+
 
 func _random_world_pos(min_dist_from_origin: float) -> Vector2:
 	var pos := Vector2.ZERO
