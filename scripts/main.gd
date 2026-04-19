@@ -1309,7 +1309,7 @@ func _open_furnish_menu() -> void:
 	border_top.position = Vector2(20, 220)
 	furnish_menu_layer.add_child(border_top)
 
-	var room_name := ROOM_NAMES[mini(room_idx, ROOM_NAMES.size() - 1)]
+	var room_name: String = ROOM_NAMES[mini(room_idx, ROOM_NAMES.size() - 1)]
 	var title := Label.new()
 	title.text = "Room %d: %s" % [room_idx + 1, room_name]
 	title.position = Vector2(30, 228)
