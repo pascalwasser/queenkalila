@@ -60,17 +60,34 @@ const KITCHEN_BTN_CENTER = Vector2(195.0, 430.0)
 const KITCHEN_BTN_RADIUS = 38.0
 const FURNISH_BTN_CENTER = Vector2(255.0, 370.0)
 const FURNISH_BTN_RADIUS = 38.0
-const FURNITURE_ITEMS = [
-	{id = "rug",       label = "Ornate Rug",    wood = 3,  min_stage = 1},
-	{id = "candle",    label = "Candle Stand",  wood = 4,  min_stage = 1},
-	{id = "bookshelf", label = "Bookshelf",     wood = 6,  min_stage = 2},
-	{id = "tapestry",  label = "Tapestry",      wood = 5,  min_stage = 2},
-	{id = "mirror",    label = "Mirror",        wood = 8,  min_stage = 3},
-	{id = "sidetable", label = "Side Table",    wood = 7,  min_stage = 3},
-	{id = "clock",     label = "Wall Clock",    wood = 10, min_stage = 4},
-	{id = "vase",      label = "Grand Vase",    wood = 8,  min_stage = 4},
-	{id = "painting",  label = "Painting",      wood = 12, min_stage = 5},
-	{id = "curtains",  label = "Curtains",      wood = 10, min_stage = 5},
+const ROOM_NAMES = ["Throne Room", "Library", "Gallery", "Royal Chamber"]
+const ROOM_0_ITEMS = [
+	{id = "throne",    label = "Throne",       wood = 10},
+	{id = "rug",       label = "Ornate Rug",   wood = 3},
+	{id = "candle",    label = "Candle Stand", wood = 4},
+	{id = "tapestry",  label = "Tapestry",     wood = 5},
+	{id = "bookshelf", label = "Bookshelf",    wood = 6},
+]
+const ROOM_1_ITEMS = [
+	{id = "chair",    label = "Reading Chair",     wood = 6},
+	{id = "desk",     label = "Writing Desk",      wood = 8},
+	{id = "gclock",   label = "Grandfather Clock", wood = 10},
+	{id = "painting", label = "Painting",          wood = 8},
+	{id = "globe",    label = "Globe",             wood = 6},
+]
+const ROOM_2_ITEMS = [
+	{id = "mirror",    label = "Grand Mirror", wood = 8},
+	{id = "vase",      label = "Tall Vase",    wood = 6},
+	{id = "curtains",  label = "Curtains",     wood = 8},
+	{id = "statue",    label = "Statue",       wood = 12},
+	{id = "sidetable", label = "Side Table",   wood = 5},
+]
+const ROOM_3_ITEMS = [
+	{id = "bed",       label = "Canopy Bed",   wood = 15},
+	{id = "wardrobe",  label = "Wardrobe",     wood = 10},
+	{id = "vanity",    label = "Vanity Table", wood = 8},
+	{id = "fireplace", label = "Fireplace",    wood = 12},
+	{id = "trophy",    label = "Trophy Case",  wood = 10},
 ]
 
 var queen: CharacterBody2D
@@ -133,6 +150,7 @@ var eat_button: Node2D
 var furnish_button: Node2D
 var furnish_menu_open := false
 var furnish_menu_layer: CanvasLayer = null
+var exit_palace_idx := 0
 
 var joystick_touch_id := -1
 var joystick_origin := Vector2.ZERO
@@ -726,8 +744,9 @@ func _enter_palace() -> void:
 	_draw_palace_furniture()
 	_spawn_servant()
 
-	# Place queen at entrance of room 0 (bottom center)
-	queen.position = Vector2(INTERIOR_ORIGIN.x, INTERIOR_ORIGIN.y + ROOM_H / 2.0 - WALL_T - 25.0)
+	# Place queen at the entered palace's room entrance
+	var enter_x := INTERIOR_ORIGIN.x + active_palace_idx * ROOM_W
+	queen.position = Vector2(enter_x, INTERIOR_ORIGIN.y + ROOM_H / 2.0 - WALL_T - 25.0)
 
 
 func _exit_palace() -> void:
@@ -739,7 +758,10 @@ func _exit_palace() -> void:
 	if palace_interior_node != null:
 		palace_interior_node.queue_free()
 		palace_interior_node = null
-	queen.position = queen_world_pos + Vector2(0, 60)
+	if exit_palace_idx >= 0 and exit_palace_idx < palaces.size():
+		queen.position = palaces[exit_palace_idx].pos + Vector2(0, 60)
+	else:
+		queen.position = queen_world_pos + Vector2(0, 60)
 	_refresh_buttons()
 	_update_ui()
 
@@ -766,16 +788,12 @@ func _build_room(room_idx: int) -> void:
 	# Gold trim under top wall
 	_ri(left + WALL_T, top + WALL_T, ROOM_W - WALL_T * 2.0, 3.0, Color(0.85, 0.70, 0.10))
 
-	# Bottom wall — exit door in room 0, solid elsewhere
-	if room_idx == 0:
-		var hw: float = (ROOM_W - EXIT_W) / 2.0
-		_ri(left, bottom - WALL_T, hw, WALL_T, Color(0.30, 0.27, 0.23))
-		_ri(right - hw, bottom - WALL_T, hw, WALL_T, Color(0.30, 0.27, 0.23))
-		# Exit door frame
-		_ri(left + hw - 3.0, bottom - WALL_T - 6.0, 3.0, 6.0, Color(0.55, 0.40, 0.10))
-		_ri(right - hw, bottom - WALL_T - 6.0, 3.0, 6.0, Color(0.55, 0.40, 0.10))
-	else:
-		_ri(left, bottom - WALL_T, ROOM_W, WALL_T, Color(0.30, 0.27, 0.23))
+	# Bottom wall — exit door in every room (each room has its own palace entrance)
+	var hw: float = (ROOM_W - EXIT_W) / 2.0
+	_ri(left, bottom - WALL_T, hw, WALL_T, Color(0.30, 0.27, 0.23))
+	_ri(right - hw, bottom - WALL_T, hw, WALL_T, Color(0.30, 0.27, 0.23))
+	_ri(left + hw - 3.0, bottom - WALL_T - 6.0, 3.0, 6.0, Color(0.55, 0.40, 0.10))
+	_ri(right - hw, bottom - WALL_T - 6.0, 3.0, 6.0, Color(0.55, 0.40, 0.10))
 
 	# Left wall — solid for room 0, door for rooms > 0
 	if room_idx == 0:
@@ -825,9 +843,8 @@ func _build_room(room_idx: int) -> void:
 	_ri(cx - 52.0, top + 2.0, 28.0, WALL_T - 4.0, Color(0.55, 0.08, 0.12))
 	_ri(cx + 24.0, top + 2.0, 28.0, WALL_T - 4.0, Color(0.55, 0.08, 0.12))
 
-	# Throne and kitchen in room 0
+	# Kitchen in room 0 (throne is now a buyable item)
 	if room_idx == 0:
-		_build_throne(cx, top + WALL_T + 14.0)
 		_build_kitchen(cx, cy)
 
 	# Chandelier in other rooms
@@ -1250,8 +1267,25 @@ func _show_overlay(msg: String) -> void:
 
 # ── Furnish menu ──────────────────────────────────────────────────────────────
 
+func _current_room_idx() -> int:
+	var rel := queen.position.x - INTERIOR_ORIGIN.x + ROOM_W * 0.5
+	return clampi(int(rel / ROOM_W), 0, palace_num_rooms - 1)
+
+
+func _room_items(room_idx: int) -> Array:
+	match room_idx:
+		0: return ROOM_0_ITEMS
+		1: return ROOM_1_ITEMS
+		2: return ROOM_2_ITEMS
+		3: return ROOM_3_ITEMS
+	return []
+
+
 func _open_furnish_menu() -> void:
-	if active_palace_idx < 0:
+	if not in_palace:
+		return
+	var room_idx := _current_room_idx()
+	if room_idx >= palaces.size():
 		return
 	furnish_menu_open = true
 	_refresh_buttons()
@@ -1265,46 +1299,44 @@ func _open_furnish_menu() -> void:
 
 	var panel := ColorRect.new()
 	panel.color = Color(0.16, 0.12, 0.08, 0.97)
-	panel.size = Vector2(350, 570)
-	panel.position = Vector2(20, 140)
+	panel.size = Vector2(350, 370)
+	panel.position = Vector2(20, 220)
 	furnish_menu_layer.add_child(panel)
 
 	var border_top := ColorRect.new()
 	border_top.color = Color(0.80, 0.62, 0.12)
 	border_top.size = Vector2(350, 4)
-	border_top.position = Vector2(20, 140)
+	border_top.position = Vector2(20, 220)
 	furnish_menu_layer.add_child(border_top)
 
+	var room_name := ROOM_NAMES[mini(room_idx, ROOM_NAMES.size() - 1)]
 	var title := Label.new()
-	title.text = "Furnish Palace"
-	title.position = Vector2(30, 148)
-	title.add_theme_font_size_override("font_size", 26)
+	title.text = "Room %d: %s" % [room_idx + 1, room_name]
+	title.position = Vector2(30, 228)
+	title.add_theme_font_size_override("font_size", 24)
 	title.add_theme_color_override("font_color", Color(1.0, 0.88, 0.38))
 	furnish_menu_layer.add_child(title)
 
-	var p: Dictionary = palaces[active_palace_idx]
-	var palace_stage: int = p.stage
+	var p: Dictionary = palaces[room_idx]
 	var palace_furniture: Array = p.furniture
 
 	var sub := Label.new()
-	sub.text = "Palace stage " + str(palace_stage) + "  |  Wood: " + str(tree_inventory)
-	sub.position = Vector2(30, 178)
+	sub.text = "Wood available: " + str(tree_inventory)
+	sub.position = Vector2(30, 258)
 	sub.add_theme_font_size_override("font_size", 18)
 	sub.add_theme_color_override("font_color", Color(0.70, 0.90, 0.40))
 	furnish_menu_layer.add_child(sub)
 
-	for i in range(FURNITURE_ITEMS.size()):
-		var item: Dictionary = FURNITURE_ITEMS[i]
-		var row_y: float = 200.0 + i * 50.0
-		var is_locked: bool = item.min_stage > palace_stage
+	var items := _room_items(room_idx)
+	for i in range(items.size()):
+		var item: Dictionary = items[i]
+		var row_y: float = 280.0 + i * 50.0
 		var is_owned: bool = palace_furniture.has(item.id)
 		var can_afford: bool = tree_inventory >= item.wood
 
 		var row_bg := ColorRect.new()
 		if is_owned:
 			row_bg.color = Color(0.12, 0.30, 0.12, 0.85)
-		elif is_locked:
-			row_bg.color = Color(0.22, 0.18, 0.14, 0.85)
 		elif can_afford:
 			row_bg.color = Color(0.14, 0.28, 0.14, 0.85)
 		else:
@@ -1314,23 +1346,14 @@ func _open_furnish_menu() -> void:
 		furnish_menu_layer.add_child(row_bg)
 
 		var name_lbl := Label.new()
-		if is_locked:
-			name_lbl.text = item.label + "  (stage " + str(item.min_stage) + ")"
-		elif is_owned:
-			name_lbl.text = item.label + "  [owned]"
-		else:
-			name_lbl.text = item.label
+		name_lbl.text = item.label + ("  [owned]" if is_owned else "")
 		name_lbl.position = Vector2(30, row_y + 10)
 		name_lbl.add_theme_font_size_override("font_size", 19)
-		if is_locked:
-			name_lbl.add_theme_color_override("font_color", Color(0.50, 0.46, 0.42))
-		elif is_owned:
-			name_lbl.add_theme_color_override("font_color", Color(0.55, 0.90, 0.45))
-		else:
-			name_lbl.add_theme_color_override("font_color", Color(0.90, 0.84, 0.74))
+		name_lbl.add_theme_color_override("font_color",
+			Color(0.55, 0.90, 0.45) if is_owned else Color(0.90, 0.84, 0.74))
 		furnish_menu_layer.add_child(name_lbl)
 
-		if not is_locked and not is_owned:
+		if not is_owned:
 			var cost_bg := ColorRect.new()
 			cost_bg.color = Color(0.25, 0.52, 0.18, 0.9) if can_afford else Color(0.40, 0.18, 0.10, 0.9)
 			cost_bg.size = Vector2(80, 36)
@@ -1343,13 +1366,6 @@ func _open_furnish_menu() -> void:
 			cost_lbl.add_theme_font_size_override("font_size", 17)
 			cost_lbl.add_theme_color_override("font_color", Color.WHITE)
 			furnish_menu_layer.add_child(cost_lbl)
-		elif is_locked:
-			var cost_lbl := Label.new()
-			cost_lbl.text = str(item.wood) + " wood"
-			cost_lbl.position = Vector2(286, row_y + 12)
-			cost_lbl.add_theme_font_size_override("font_size", 17)
-			cost_lbl.add_theme_color_override("font_color", Color(0.45, 0.42, 0.38))
-			furnish_menu_layer.add_child(cost_lbl)
 
 
 func _close_furnish_menu() -> void:
@@ -1361,134 +1377,235 @@ func _close_furnish_menu() -> void:
 
 
 func _on_furnish_row_tapped(i: int) -> void:
-	if active_palace_idx < 0:
+	var room_idx := _current_room_idx()
+	if room_idx >= palaces.size():
 		return
-	var item: Dictionary = FURNITURE_ITEMS[i]
-	var p: Dictionary = palaces[active_palace_idx]
+	var items := _room_items(room_idx)
+	if i >= items.size():
+		return
+	var item: Dictionary = items[i]
+	var p: Dictionary = palaces[room_idx]
 	var palace_furniture: Array = p.furniture
-	if item.min_stage > p.stage:
-		return
 	if palace_furniture.has(item.id):
 		return
 	if tree_inventory < item.wood:
 		return
 	tree_inventory -= item.wood
 	palace_furniture.append(item.id)
-	_draw_furniture_item(item.id)
+	_draw_furniture_item(item.id, room_idx)
 	_update_ui()
 	_close_furnish_menu()
 	_open_furnish_menu()
 
 
 func _draw_palace_furniture() -> void:
-	if active_palace_idx < 0 or palace_interior_node == null:
-		return
-	var p: Dictionary = palaces[active_palace_idx]
-	var palace_furniture: Array = p.furniture
-	for id in palace_furniture:
-		_draw_furniture_item(id)
-
-
-func _draw_furniture_item(id: String) -> void:
 	if palace_interior_node == null:
 		return
+	for i in range(mini(palaces.size(), 4)):
+		if i >= palace_num_rooms:
+			break
+		var pf: Array = palaces[i].furniture
+		for id in pf:
+			_draw_furniture_item(id, i)
+
+
+func _draw_furniture_item(id: String, room_idx: int) -> void:
+	if palace_interior_node == null:
+		return
+	var ox := float(room_idx) * ROOM_W  # x offset for this room
 	match id:
+		# ── Room 0: Throne Room ───────────────────────────────────────────────
+		"throne":
+			_build_throne(ox, INTERIOR_ORIGIN.y - ROOM_H / 2.0 + WALL_T + 14.0)
 		"rug":
-			_ri(-150.0, -3575.0, 90.0, 106.0, Color(0.62, 0.10, 0.08))
-			_ri(-148.0, -3573.0, 86.0, 102.0, Color(0.72, 0.14, 0.10, 0.85))
-			_ri(-148.0, -3573.0, 86.0, 5.0, Color(0.90, 0.72, 0.20))
-			_ri(-148.0, -3471.0, 86.0, 5.0, Color(0.90, 0.72, 0.20))
-			_ri(-148.0, -3573.0, 5.0, 102.0, Color(0.90, 0.72, 0.20))
-			_ri(-67.0, -3573.0, 5.0, 102.0, Color(0.90, 0.72, 0.20))
-			_rc(-105.0, -3522.0, 20.0, Color(0.90, 0.72, 0.20, 0.55))
-			_rc(-105.0, -3522.0, 12.0, Color(0.72, 0.14, 0.10, 0.90))
+			_ri(ox - 150.0, -3575.0, 90.0, 106.0, Color(0.62, 0.10, 0.08))
+			_ri(ox - 148.0, -3573.0, 86.0, 102.0, Color(0.72, 0.14, 0.10, 0.85))
+			_ri(ox - 148.0, -3573.0, 86.0, 5.0, Color(0.90, 0.72, 0.20))
+			_ri(ox - 148.0, -3471.0, 86.0, 5.0, Color(0.90, 0.72, 0.20))
+			_ri(ox - 148.0, -3573.0, 5.0, 102.0, Color(0.90, 0.72, 0.20))
+			_ri(ox - 67.0, -3573.0, 5.0, 102.0, Color(0.90, 0.72, 0.20))
+			_rc(ox - 105.0, -3522.0, 20.0, Color(0.90, 0.72, 0.20, 0.55))
+			_rc(ox - 105.0, -3522.0, 12.0, Color(0.72, 0.14, 0.10, 0.90))
 		"candle":
-			_ri(-139.0, -3278.0, 5.0, 28.0, Color(0.55, 0.40, 0.12))
-			_ri(-145.0, -3284.0, 17.0, 4.0, Color(0.65, 0.50, 0.18))
-			_ri(-142.0, -3282.0, 5.0, 14.0, Color(0.92, 0.90, 0.82))
+			_ri(ox - 139.0, -3278.0, 5.0, 28.0, Color(0.55, 0.40, 0.12))
+			_ri(ox - 145.0, -3284.0, 17.0, 4.0, Color(0.65, 0.50, 0.18))
+			_ri(ox - 142.0, -3282.0, 5.0, 14.0, Color(0.92, 0.90, 0.82))
 			var flame := Polygon2D.new()
 			flame.color = Color(1.0, 0.72, 0.05, 0.95)
 			flame.polygon = PackedVector2Array([
-				Vector2(-142.0, -3293.0), Vector2(-139.5, -3300.0),
-				Vector2(-137.0, -3293.0), Vector2(-138.5, -3289.0), Vector2(-140.5, -3289.0)
+				Vector2(ox - 142.0, -3293.0), Vector2(ox - 139.5, -3300.0),
+				Vector2(ox - 137.0, -3293.0), Vector2(ox - 138.5, -3289.0), Vector2(ox - 140.5, -3289.0)
 			])
 			palace_interior_node.add_child(flame)
-		"bookshelf":
-			_ri(-163.0, -3665.0, 22.0, 95.0, Color(0.38, 0.23, 0.07))
-			_ri(-161.0, -3663.0, 18.0, 91.0, Color(0.50, 0.33, 0.11))
-			_ri(-161.0, -3630.0, 18.0, 2.0, Color(0.30, 0.18, 0.05))
-			_ri(-161.0, -3600.0, 18.0, 2.0, Color(0.30, 0.18, 0.05))
-			_ri(-161.0, -3663.0, 4.0, 31.0, Color(0.15, 0.40, 0.65))
-			_ri(-157.0, -3663.0, 4.0, 25.0, Color(0.65, 0.15, 0.15))
-			_ri(-153.0, -3663.0, 4.0, 29.0, Color(0.15, 0.55, 0.20))
-			_ri(-149.0, -3663.0, 4.0, 22.0, Color(0.70, 0.55, 0.10))
-			_ri(-161.0, -3628.0, 4.0, 26.0, Color(0.55, 0.15, 0.55))
-			_ri(-157.0, -3628.0, 4.0, 30.0, Color(0.15, 0.50, 0.50))
-			_ri(-153.0, -3628.0, 4.0, 20.0, Color(0.70, 0.30, 0.10))
-			_ri(-149.0, -3628.0, 4.0, 28.0, Color(0.20, 0.20, 0.70))
-			_ri(-161.0, -3598.0, 4.0, 24.0, Color(0.65, 0.45, 0.10))
-			_ri(-157.0, -3598.0, 4.0, 28.0, Color(0.15, 0.45, 0.60))
-			_ri(-153.0, -3598.0, 4.0, 22.0, Color(0.60, 0.15, 0.30))
 		"tapestry":
-			_ri(-163.0, -3515.0, 15.0, 65.0, Color(0.48, 0.06, 0.10))
-			_ri(-161.0, -3513.0, 11.0, 61.0, Color(0.62, 0.09, 0.13, 0.92))
-			_ri(-163.0, -3515.0, 15.0, 3.0, Color(0.88, 0.70, 0.10))
-			_ri(-163.0, -3453.0, 15.0, 3.0, Color(0.88, 0.70, 0.10))
-			_rc(-155.0, -3493.0, 5.0, Color(0.90, 0.72, 0.20, 0.82))
-			_rc(-155.0, -3474.0, 4.0, Color(0.90, 0.72, 0.20, 0.82))
-			_ri(-163.0, -3483.0, 15.0, 2.0, Color(0.90, 0.72, 0.20, 0.55))
+			_ri(ox - 163.0, -3515.0, 15.0, 65.0, Color(0.48, 0.06, 0.10))
+			_ri(ox - 161.0, -3513.0, 11.0, 61.0, Color(0.62, 0.09, 0.13, 0.92))
+			_ri(ox - 163.0, -3515.0, 15.0, 3.0, Color(0.88, 0.70, 0.10))
+			_ri(ox - 163.0, -3453.0, 15.0, 3.0, Color(0.88, 0.70, 0.10))
+			_rc(ox - 155.0, -3493.0, 5.0, Color(0.90, 0.72, 0.20, 0.82))
+			_rc(ox - 155.0, -3474.0, 4.0, Color(0.90, 0.72, 0.20, 0.82))
+			_ri(ox - 163.0, -3483.0, 15.0, 2.0, Color(0.90, 0.72, 0.20, 0.55))
+		"bookshelf":
+			_ri(ox - 163.0, -3665.0, 22.0, 95.0, Color(0.38, 0.23, 0.07))
+			_ri(ox - 161.0, -3663.0, 18.0, 91.0, Color(0.50, 0.33, 0.11))
+			_ri(ox - 161.0, -3630.0, 18.0, 2.0, Color(0.30, 0.18, 0.05))
+			_ri(ox - 161.0, -3600.0, 18.0, 2.0, Color(0.30, 0.18, 0.05))
+			_ri(ox - 161.0, -3663.0, 4.0, 31.0, Color(0.15, 0.40, 0.65))
+			_ri(ox - 157.0, -3663.0, 4.0, 25.0, Color(0.65, 0.15, 0.15))
+			_ri(ox - 153.0, -3663.0, 4.0, 29.0, Color(0.15, 0.55, 0.20))
+			_ri(ox - 149.0, -3663.0, 4.0, 22.0, Color(0.70, 0.55, 0.10))
+			_ri(ox - 161.0, -3628.0, 4.0, 26.0, Color(0.55, 0.15, 0.55))
+			_ri(ox - 157.0, -3628.0, 4.0, 30.0, Color(0.15, 0.50, 0.50))
+			_ri(ox - 153.0, -3628.0, 4.0, 20.0, Color(0.70, 0.30, 0.10))
+			_ri(ox - 149.0, -3628.0, 4.0, 28.0, Color(0.20, 0.20, 0.70))
+			_ri(ox - 161.0, -3598.0, 4.0, 24.0, Color(0.65, 0.45, 0.10))
+			_ri(ox - 157.0, -3598.0, 4.0, 28.0, Color(0.15, 0.45, 0.60))
+			_ri(ox - 153.0, -3598.0, 4.0, 22.0, Color(0.60, 0.15, 0.30))
+		# ── Room 1: Library ───────────────────────────────────────────────────
+		"chair":
+			_ri(ox - 110.0, -3562.0, 34.0, 12.0, Color(0.42, 0.21, 0.07))
+			_ri(ox - 112.0, -3550.0, 38.0, 12.0, Color(0.50, 0.26, 0.09))
+			_ri(ox - 114.0, -3562.0, 6.0, 22.0, Color(0.38, 0.18, 0.06))
+			_ri(ox - 74.0,  -3562.0, 6.0, 22.0, Color(0.38, 0.18, 0.06))
+			_ri(ox - 106.0, -3560.0, 26.0, 9.0, Color(0.50, 0.07, 0.11))
+			_ri(ox - 108.0, -3548.0, 30.0, 9.0, Color(0.50, 0.07, 0.11))
+		"desk":
+			_ri(ox - 163.0, -3642.0, 24.0, 58.0, Color(0.42, 0.26, 0.09))
+			_ri(ox - 161.0, -3640.0, 20.0, 54.0, Color(0.58, 0.38, 0.14))
+			_ri(ox - 160.0, -3588.0, 4.0, 12.0, Color(0.35, 0.20, 0.07))
+			_ri(ox - 146.0, -3588.0, 4.0, 12.0, Color(0.35, 0.20, 0.07))
+			_ri(ox - 158.0, -3638.0, 2.0, 18.0, Color(0.85, 0.80, 0.55))
+			_rc(ox - 157.0, -3619.0, 3.0, Color(0.18, 0.14, 0.10))
+			_ri(ox - 155.0, -3638.0, 11.0, 14.0, Color(0.95, 0.92, 0.85))
+		"gclock":
+			_ri(ox - 163.0, -3728.0, 19.0, 112.0, Color(0.35, 0.22, 0.08))
+			_ri(ox - 161.0, -3726.0, 15.0, 108.0, Color(0.48, 0.30, 0.11))
+			_rc(ox - 153.0, -3700.0, 9.0, Color(0.90, 0.86, 0.78))
+			_rc(ox - 153.0, -3700.0, 7.0, Color(0.96, 0.93, 0.86))
+			_ri(ox - 154.0, -3708.0, 2.0, 8.0, Color(0.12, 0.10, 0.08))
+			_ri(ox - 154.0, -3706.0, 7.0, 2.0, Color(0.12, 0.10, 0.08))
+			_ri(ox - 159.0, -3668.0, 11.0, 32.0, Color(0.62, 0.50, 0.30, 0.4))
+			_rc(ox - 153.0, -3652.0, 5.0, Color(0.85, 0.70, 0.10))
+			_ri(ox - 161.0, -3730.0, 15.0, 4.0, Color(0.28, 0.17, 0.06))
+		"painting":
+			_ri(ox - 163.0, -3492.0, 19.0, 28.0, Color(0.55, 0.40, 0.12))
+			_ri(ox - 161.0, -3490.0, 15.0, 24.0, Color(0.18, 0.32, 0.52))
+			_ri(ox - 161.0, -3477.0, 15.0, 11.0, Color(0.22, 0.48, 0.18))
+			_rc(ox - 154.0, -3485.0, 3.5, Color(0.95, 0.85, 0.20))
+			_ri(ox - 159.0, -3479.0, 2.0, 6.0, Color(0.35, 0.22, 0.08))
+			_rc(ox - 158.0, -3482.0, 4.0, Color(0.14, 0.48, 0.14))
+		"globe":
+			_ri(ox - 102.0, -3440.0, 6.0, 22.0, Color(0.48, 0.30, 0.10))
+			_ri(ox - 114.0, -3420.0, 30.0, 5.0, Color(0.55, 0.35, 0.12))
+			_rc(ox - 99.0, -3452.0, 16.0, Color(0.15, 0.35, 0.65))
+			_ri(ox - 110.0, -3462.0, 10.0, 7.0, Color(0.25, 0.55, 0.20))
+			_ri(ox - 97.0,  -3456.0, 8.0, 10.0, Color(0.25, 0.55, 0.20))
+			_ri(ox - 104.0, -3444.0, 7.0, 5.0, Color(0.25, 0.55, 0.20))
+			_ri(ox - 91.0,  -3462.0, 5.0, 6.0, Color(0.25, 0.55, 0.20))
+		# ── Room 2: Gallery ───────────────────────────────────────────────────
 		"mirror":
-			_rc(-152.0, -3470.0, 20.0, Color(0.80, 0.62, 0.12))
-			_rc(-152.0, -3470.0, 15.0, Color(0.55, 0.75, 0.90, 0.82))
-			_rc(-152.0, -3470.0, 12.0, Color(0.80, 0.92, 1.00, 0.45))
-			_rc(-152.0, -3490.0, 4.0, Color(0.90, 0.72, 0.20))
-			_rc(-152.0, -3450.0, 4.0, Color(0.90, 0.72, 0.20))
-		"sidetable":
-			_ri(-107.0, -3324.0, 54.0, 6.0, Color(0.38, 0.22, 0.07))
-			_ri(-105.0, -3322.0, 50.0, 5.0, Color(0.62, 0.44, 0.18))
-			_ri(-102.0, -3317.0, 5.0, 20.0, Color(0.46, 0.28, 0.09))
-			_ri(-60.0, -3317.0, 5.0, 20.0, Color(0.46, 0.28, 0.09))
-			_rc(-80.0, -3327.0, 7.0, Color(0.88, 0.82, 0.74))
-			_ri(-87.0, -3320.0, 14.0, 2.0, Color(0.88, 0.82, 0.74))
-		"clock":
-			_ri(-163.0, -3710.0, 22.0, 24.0, Color(0.32, 0.20, 0.07))
-			_rc(-152.0, -3698.0, 9.0, Color(0.90, 0.86, 0.78))
-			_rc(-152.0, -3698.0, 7.0, Color(0.96, 0.93, 0.86))
-			_ri(-153.0, -3706.0, 2.0, 8.0, Color(0.12, 0.10, 0.08))
-			_ri(-153.0, -3705.0, 7.0, 2.0, Color(0.12, 0.10, 0.08))
-			_rc(-152.0, -3707.0, 1.5, Color(0.18, 0.14, 0.10))
-			_rc(-143.0, -3698.0, 1.5, Color(0.18, 0.14, 0.10))
-			_rc(-152.0, -3689.0, 1.5, Color(0.18, 0.14, 0.10))
-			_rc(-161.0, -3698.0, 1.5, Color(0.18, 0.14, 0.10))
+			_rc(ox - 152.0, -3470.0, 22.0, Color(0.80, 0.62, 0.12))
+			_rc(ox - 152.0, -3470.0, 17.0, Color(0.55, 0.75, 0.90, 0.82))
+			_rc(ox - 152.0, -3470.0, 13.0, Color(0.80, 0.92, 1.00, 0.42))
+			_rc(ox - 152.0, -3492.0, 5.0, Color(0.90, 0.72, 0.20))
+			_rc(ox - 152.0, -3448.0, 5.0, Color(0.90, 0.72, 0.20))
+			_rc(ox - 174.0, -3470.0, 4.0, Color(0.90, 0.72, 0.20))
+			_rc(ox - 130.0, -3470.0, 4.0, Color(0.90, 0.72, 0.20))
 		"vase":
 			var vpts := PackedVector2Array([
-				Vector2(-149.0, -3258.0), Vector2(-143.0, -3260.0),
-				Vector2(-139.0, -3265.0), Vector2(-138.0, -3278.0),
-				Vector2(-140.0, -3286.0), Vector2(-146.0, -3289.0),
-				Vector2(-154.0, -3289.0), Vector2(-158.0, -3283.0),
-				Vector2(-157.0, -3270.0), Vector2(-154.0, -3260.0)
+				Vector2(ox - 149.0, -3258.0), Vector2(ox - 143.0, -3260.0),
+				Vector2(ox - 139.0, -3265.0), Vector2(ox - 138.0, -3278.0),
+				Vector2(ox - 140.0, -3286.0), Vector2(ox - 146.0, -3289.0),
+				Vector2(ox - 154.0, -3289.0), Vector2(ox - 158.0, -3283.0),
+				Vector2(ox - 157.0, -3270.0), Vector2(ox - 154.0, -3260.0)
 			])
 			var vase := Polygon2D.new()
-			vase.color = Color(0.14, 0.34, 0.65)
+			vase.color = Color(0.65, 0.22, 0.06)
 			vase.polygon = vpts
 			palace_interior_node.add_child(vase)
-			_ri(-151.0, -3250.0, 6.0, 10.0, Color(0.14, 0.34, 0.65))
-			_ri(-154.0, -3252.0, 12.0, 3.0, Color(0.20, 0.42, 0.75))
-			_rc(-148.0, -3272.0, 4.0, Color(0.80, 0.88, 1.00, 0.72))
-		"painting":
-			_ri(-163.0, -3550.0, 19.0, 28.0, Color(0.55, 0.40, 0.12))
-			_ri(-161.0, -3548.0, 15.0, 24.0, Color(0.18, 0.32, 0.52))
-			_ri(-161.0, -3535.0, 15.0, 11.0, Color(0.22, 0.48, 0.18))
-			_rc(-154.0, -3543.0, 3.5, Color(0.95, 0.85, 0.20))
-			_ri(-159.0, -3537.0, 2.0, 6.0, Color(0.35, 0.22, 0.08))
-			_rc(-158.0, -3540.0, 4.0, Color(0.14, 0.48, 0.14))
+			_ri(ox - 151.0, -3250.0, 6.0, 10.0, Color(0.65, 0.22, 0.06))
+			_ri(ox - 154.0, -3252.0, 12.0, 3.0, Color(0.78, 0.32, 0.10))
+			_rc(ox - 148.0, -3272.0, 4.0, Color(0.95, 0.78, 0.38, 0.72))
 		"curtains":
-			for wx: float in [-80.0, 58.0]:
+			for wx: float in [ox - 80.0, ox + 58.0]:
 				_ri(wx - 8.0, -3773.0, 40.0, 4.0, Color(0.68, 0.52, 0.12))
 				for rx: float in [-6.0, -1.0, 4.0, 9.0, 14.0, 19.0, 24.0]:
 					_rc(wx + rx, -3771.0, 2.5, Color(0.84, 0.68, 0.16))
 				_ri(wx - 7.0, -3769.0, 9.0, 52.0, Color(0.50, 0.07, 0.11, 0.92))
 				_ri(wx + 20.0, -3769.0, 9.0, 52.0, Color(0.50, 0.07, 0.11, 0.92))
+		"statue":
+			_ri(ox - 100.0, -3432.0, 20.0, 22.0, Color(0.58, 0.55, 0.50))
+			_ri(ox - 98.0,  -3430.0, 16.0, 18.0, Color(0.72, 0.68, 0.62))
+			_rc(ox - 90.0,  -3448.0, 7.0, Color(0.65, 0.62, 0.57))
+			_ri(ox - 96.0,  -3445.0, 12.0, 18.0, Color(0.62, 0.58, 0.53))
+			_ri(ox - 99.0,  -3442.0, 5.0, 10.0, Color(0.60, 0.56, 0.51))
+			_ri(ox - 82.0,  -3439.0, 5.0, 10.0, Color(0.60, 0.56, 0.51))
+			_rc(ox - 88.0,  -3448.0, 3.0, Color(0.82, 0.80, 0.76, 0.5))
+		"sidetable":
+			_ri(ox - 107.0, -3324.0, 54.0, 6.0, Color(0.38, 0.22, 0.07))
+			_ri(ox - 105.0, -3322.0, 50.0, 5.0, Color(0.62, 0.44, 0.18))
+			_ri(ox - 102.0, -3317.0, 5.0, 20.0, Color(0.46, 0.28, 0.09))
+			_ri(ox - 60.0,  -3317.0, 5.0, 20.0, Color(0.46, 0.28, 0.09))
+			_rc(ox - 80.0,  -3327.0, 7.0, Color(0.88, 0.82, 0.74))
+			_ri(ox - 87.0,  -3320.0, 14.0, 2.0, Color(0.88, 0.82, 0.74))
+		# ── Room 3: Royal Chamber ─────────────────────────────────────────────
+		"bed":
+			_ri(ox - 140.0, -3700.0, 100.0, 60.0, Color(0.40, 0.24, 0.08))
+			_ri(ox - 138.0, -3698.0, 96.0,  56.0, Color(0.55, 0.35, 0.14))
+			_ri(ox - 136.0, -3696.0, 92.0,  52.0, Color(0.88, 0.84, 0.78))
+			_ri(ox - 133.0, -3694.0, 26.0,  14.0, Color(0.96, 0.94, 0.90))
+			_ri(ox - 103.0, -3694.0, 26.0,  14.0, Color(0.96, 0.94, 0.90))
+			_ri(ox - 136.0, -3678.0, 92.0,  32.0, Color(0.50, 0.07, 0.11))
+			_ri(ox - 133.0, -3676.0, 86.0,  28.0, Color(0.60, 0.09, 0.14, 0.85))
+			for bpx: float in [ox - 141.0, ox - 45.0]:
+				_rc(bpx, -3700.0, 4.5, Color(0.42, 0.26, 0.09))
+				_rc(bpx, -3642.0, 4.5, Color(0.42, 0.26, 0.09))
+		"wardrobe":
+			_ri(ox - 163.0, -3712.0, 32.0, 82.0, Color(0.38, 0.23, 0.08))
+			_ri(ox - 161.0, -3710.0, 28.0, 78.0, Color(0.52, 0.34, 0.12))
+			_ri(ox - 160.0, -3708.0, 12.0, 74.0, Color(0.58, 0.40, 0.16))
+			_ri(ox - 147.0, -3708.0, 12.0, 74.0, Color(0.58, 0.40, 0.16))
+			_rc(ox - 150.0, -3671.0, 2.5, Color(0.80, 0.65, 0.12))
+			_rc(ox - 137.0, -3671.0, 2.5, Color(0.80, 0.65, 0.12))
+			_ri(ox - 163.0, -3714.0, 32.0, 4.0, Color(0.30, 0.18, 0.06))
+		"vanity":
+			_ri(ox - 112.0, -3334.0, 54.0, 6.0, Color(0.42, 0.26, 0.08))
+			_ri(ox - 110.0, -3332.0, 50.0, 5.0, Color(0.60, 0.42, 0.16))
+			_ri(ox - 107.0, -3327.0, 4.0, 18.0, Color(0.45, 0.27, 0.09))
+			_ri(ox - 65.0,  -3327.0, 4.0, 18.0, Color(0.45, 0.27, 0.09))
+			_ri(ox - 102.0, -3358.0, 32.0, 24.0, Color(0.52, 0.38, 0.12))
+			_ri(ox - 100.0, -3356.0, 28.0, 20.0, Color(0.65, 0.82, 0.95, 0.8))
+			_rc(ox - 86.0,  -3352.0, 6.0, Color(0.80, 0.90, 1.0, 0.4))
+			_rc(ox - 97.0,  -3336.0, 4.0, Color(0.62, 0.30, 0.62))
+			_rc(ox - 84.0,  -3336.0, 3.5, Color(0.30, 0.55, 0.72))
+		"fireplace":
+			_ri(ox - 163.0, -3532.0, 40.0, 56.0, Color(0.45, 0.42, 0.38))
+			_ri(ox - 159.0, -3528.0, 32.0, 44.0, Color(0.15, 0.12, 0.10))
+			var fp := Polygon2D.new()
+			fp.color = Color(1.0, 0.45, 0.05, 0.92)
+			fp.polygon = PackedVector2Array([
+				Vector2(ox - 152.0, -3488.0), Vector2(ox - 143.0, -3512.0),
+				Vector2(ox - 134.0, -3488.0), Vector2(ox - 138.0, -3482.0),
+				Vector2(ox - 148.0, -3480.0)
+			])
+			palace_interior_node.add_child(fp)
+			var fe := Polygon2D.new()
+			fe.color = Color(1.0, 0.85, 0.20, 0.75)
+			fe.polygon = _circle_polygon(7.0)
+			fe.position = Vector2(ox - 143.0, -3500.0)
+			palace_interior_node.add_child(fe)
+			_ri(ox - 165.0, -3534.0, 44.0, 5.0, Color(0.52, 0.50, 0.46))
+			_rc(ox - 153.0, -3492.0, 3.0, Color(0.30, 0.28, 0.26))
+			_rc(ox - 133.0, -3492.0, 3.0, Color(0.30, 0.28, 0.26))
+		"trophy":
+			_ri(ox - 112.0, -3452.0, 42.0, 52.0, Color(0.38, 0.22, 0.07))
+			_ri(ox - 110.0, -3450.0, 38.0, 48.0, Color(0.68, 0.82, 0.90, 0.48))
+			_rc(ox - 91.0,  -3432.0, 9.0, Color(0.85, 0.68, 0.10))
+			_ri(ox - 94.0,  -3421.0, 6.0, 8.0, Color(0.85, 0.68, 0.10))
+			_ri(ox - 98.0,  -3415.0, 14.0, 3.0, Color(0.85, 0.68, 0.10))
+			_rc(ox - 80.0,  -3438.0, 6.0, Color(0.78, 0.78, 0.82))
+			_ri(ox - 83.0,  -3430.0, 6.0, 7.0, Color(0.78, 0.78, 0.82))
+			_ri(ox - 86.0,  -3425.0, 12.0, 3.0, Color(0.78, 0.78, 0.82))
 
 
 # ── Joystick ──────────────────────────────────────────────────────────────────
@@ -1526,12 +1643,13 @@ func _input(event: InputEvent) -> void:
 		elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 			menu_tap = event.position
 		if menu_tap.x > -9000:
-			var panel := Rect2(20, 140, 350, 570)
+			var panel := Rect2(20, 220, 350, 370)
 			if not panel.has_point(menu_tap):
 				_close_furnish_menu()
 			else:
-				for i in range(FURNITURE_ITEMS.size()):
-					var row_y := 200.0 + i * 50.0
+				var items := _room_items(_current_room_idx())
+				for i in range(items.size()):
+					var row_y := 280.0 + i * 50.0
 					if menu_tap.y >= row_y and menu_tap.y < row_y + 48.0:
 						_on_furnish_row_tapped(i)
 						break
@@ -1661,20 +1779,25 @@ func _palace_bounds_and_exit() -> void:
 	queen.position.x = clampf(queen.position.x, min_x, max_x)
 	queen.position.y = clampf(queen.position.y, min_y, max_y)
 
-	# Exit: walk through the bottom door of room 0
+	# Exit: walk through any room's bottom door
 	var at_exit_y: bool = queen.position.y >= INTERIOR_ORIGIN.y + ROOM_H / 2.0 - WALL_T / 2.0
-	var at_exit_x: bool = absf(queen.position.x - INTERIOR_ORIGIN.x) < EXIT_W / 2.0
-	if at_exit_y and at_exit_x:
-		_exit_palace()
+	if at_exit_y:
+		for r in range(palace_num_rooms):
+			var room_cx: float = INTERIOR_ORIGIN.x + r * ROOM_W
+			if absf(queen.position.x - room_cx) < EXIT_W / 2.0:
+				exit_palace_idx = r
+				_exit_palace()
+				return
 
 
 func _check_palace_entry() -> void:
-	for p in palaces:
+	for i in range(palaces.size()):
+		var p: Dictionary = palaces[i]
 		if p.stage < TOTAL_STAGES:
 			continue
-		# Entrance is at the base of the palace arch
 		var entrance: Vector2 = p.pos + Vector2(0.0, 10.0)
 		if queen.position.distance_to(entrance) < PALACE_ENTER_DIST:
+			active_palace_idx = i
 			_enter_palace()
 			return
 
