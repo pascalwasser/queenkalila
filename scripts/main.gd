@@ -66,34 +66,34 @@ const FLOWER_POS = Vector2(-550.0, 380.0)
 const NPC_TALK_RANGE = 80.0
 const FLOWER_PICK_RANGE = 55.0
 const QUEST_REWARD_WOOD = 10
-const ROOM_NAMES = ["Throne Room", "Library", "Gallery", "Royal Chamber"]
+const ROOM_NAMES = ["Thronsaal", "Bibliothek", "Galerie", "Königskammer"]
 const ROOM_0_ITEMS = [
-	{id = "throne",    label = "Throne",       wood = 10},
-	{id = "rug",       label = "Ornate Rug",   wood = 3},
-	{id = "candle",    label = "Candle Stand", wood = 4},
-	{id = "tapestry",  label = "Tapestry",     wood = 5},
-	{id = "bookshelf", label = "Bookshelf",    wood = 6},
+	{id = "throne",    label = "Thron",          wood = 10},
+	{id = "rug",       label = "Zierteppich",    wood = 3},
+	{id = "candle",    label = "Kerzenständer",  wood = 4},
+	{id = "tapestry",  label = "Wandteppich",    wood = 5},
+	{id = "bookshelf", label = "Bücherregal",    wood = 6},
 ]
 const ROOM_1_ITEMS = [
-	{id = "chair",    label = "Reading Chair",     wood = 6},
-	{id = "desk",     label = "Writing Desk",      wood = 8},
-	{id = "gclock",   label = "Grandfather Clock", wood = 10},
-	{id = "painting", label = "Painting",          wood = 8},
-	{id = "globe",    label = "Globe",             wood = 6},
+	{id = "chair",    label = "Lesesessel",       wood = 6},
+	{id = "desk",     label = "Schreibtisch",     wood = 8},
+	{id = "gclock",   label = "Standuhr",         wood = 10},
+	{id = "painting", label = "Gemälde",          wood = 8},
+	{id = "globe",    label = "Globus",           wood = 6},
 ]
 const ROOM_2_ITEMS = [
-	{id = "mirror",    label = "Grand Mirror", wood = 8},
-	{id = "vase",      label = "Tall Vase",    wood = 6},
-	{id = "curtains",  label = "Curtains",     wood = 8},
-	{id = "statue",    label = "Statue",       wood = 12},
-	{id = "sidetable", label = "Side Table",   wood = 5},
+	{id = "mirror",    label = "Großer Spiegel", wood = 8},
+	{id = "vase",      label = "Hohe Vase",      wood = 6},
+	{id = "curtains",  label = "Vorhänge",       wood = 8},
+	{id = "statue",    label = "Statue",         wood = 12},
+	{id = "sidetable", label = "Beistelltisch",  wood = 5},
 ]
 const ROOM_3_ITEMS = [
-	{id = "bed",       label = "Canopy Bed",   wood = 15},
-	{id = "wardrobe",  label = "Wardrobe",     wood = 10},
-	{id = "vanity",    label = "Vanity Table", wood = 8},
-	{id = "fireplace", label = "Fireplace",    wood = 12},
-	{id = "trophy",    label = "Trophy Case",  wood = 10},
+	{id = "bed",       label = "Himmelbett",     wood = 15},
+	{id = "wardrobe",  label = "Kleiderschrank", wood = 10},
+	{id = "vanity",    label = "Schminktisch",   wood = 8},
+	{id = "fireplace", label = "Kamin",          wood = 12},
+	{id = "trophy",    label = "Trophäenschrank",wood = 10},
 ]
 
 var queen: CharacterBody2D
@@ -297,7 +297,7 @@ func _on_star_collected(body: Node2D, star: Area2D) -> void:
 	stars_collected += 1
 	_update_ui()
 	if stars_collected >= STAR_COUNT:
-		_show_overlay("You won!\nAll stars collected!")
+		_show_overlay("Gewonnen!\nAlle Sterne gesammelt!")
 		game_over = true
 
 
@@ -607,7 +607,7 @@ func _update_energy(delta: float) -> void:
 
 
 func _update_energy_ui() -> void:
-	energy_label.text = "Energy: %d" % int(energy)
+	energy_label.text = "Energie: %d" % int(energy)
 	var fill_ratio: float = clampf(energy / 20.0, 0.0, 1.0)
 	energy_bar_fill.size.x = 160.0 * fill_ratio
 	if energy < 3.0:
@@ -1202,18 +1202,18 @@ func _make_icon_button(layer: CanvasLayer, center: Vector2) -> Node2D:
 
 
 func _update_ui() -> void:
-	ui_label.text = "Stars: %d / %d" % [stars_collected, STAR_COUNT]
-	tree_label.text = "Wood: %d" % tree_inventory
+	ui_label.text = "Sterne: %d / %d" % [stars_collected, STAR_COUNT]
+	tree_label.text = "Holz: %d" % tree_inventory
 	if in_palace:
-		palace_label.text = "Inside the palace"
+		palace_label.text = "Im Palast"
 	elif active_palace_idx >= 0:
 		var p: Dictionary = palaces[active_palace_idx]
 		if p.stage >= TOTAL_STAGES:
-			palace_label.text = "Palace %d: complete!" % (active_palace_idx + 1)
+			palace_label.text = "Palast %d: fertig!" % (active_palace_idx + 1)
 		else:
-			palace_label.text = "Palace %d: stage %d/%d" % [active_palace_idx + 1, p.stage, TOTAL_STAGES]
+			palace_label.text = "Palast %d: Stufe %d/%d" % [active_palace_idx + 1, p.stage, TOTAL_STAGES]
 	else:
-		palace_label.text = "Palaces built: %d" % palaces_completed
+		palace_label.text = "Paläste gebaut: %d" % palaces_completed
 
 
 func _refresh_buttons() -> void:
@@ -1337,7 +1337,7 @@ func _open_furnish_menu() -> void:
 	var palace_furniture: Array = p.furniture
 
 	var sub := Label.new()
-	sub.text = "Wood available: " + str(tree_inventory)
+	sub.text = "Holz verfügbar: " + str(tree_inventory)
 	sub.position = Vector2(30, 258)
 	sub.add_theme_font_size_override("font_size", 18)
 	sub.add_theme_color_override("font_color", Color(0.70, 0.90, 0.40))
@@ -1362,7 +1362,7 @@ func _open_furnish_menu() -> void:
 		furnish_menu_layer.add_child(row_bg)
 
 		var name_lbl := Label.new()
-		name_lbl.text = item.label + ("  [owned]" if is_owned else "")
+		name_lbl.text = item.label + ("  [besessen]" if is_owned else "")
 		name_lbl.position = Vector2(30, row_y + 10)
 		name_lbl.add_theme_font_size_override("font_size", 19)
 		name_lbl.add_theme_color_override("font_color",
@@ -1377,7 +1377,7 @@ func _open_furnish_menu() -> void:
 			furnish_menu_layer.add_child(cost_bg)
 
 			var cost_lbl := Label.new()
-			cost_lbl.text = str(item.wood) + " wood"
+			cost_lbl.text = str(item.wood) + " Holz"
 			cost_lbl.position = Vector2(286, row_y + 12)
 			cost_lbl.add_theme_font_size_override("font_size", 17)
 			cost_lbl.add_theme_color_override("font_color", Color.WHITE)
@@ -1972,13 +1972,13 @@ func _refresh_quest_dialog() -> void:
 	if quest_near_npc:
 		match quest_state:
 			"waiting":
-				msg = "Please help me!\nI need the special\nflower that grows\nto the south-west."
+				msg = "Bitte hilf mir!\nIch brauche die\nbesondere Blume,\ndie im Südwesten wächst."
 			"carrying":
-				msg = "You found it!\nPlease bring\nit to me!"
+				msg = "Du hast sie gefunden!\nBring sie mir\nbitte!"
 			"done":
-				msg = "Thank you so much!\nHere, take 10 wood\nas a gift!"
+				msg = "Vielen Dank!\nHier, nimm 10 Holz\nals Geschenk!"
 	elif quest_near_flower and quest_state == "waiting":
-		msg = "A special flower!\nPick it up?"
+		msg = "Eine besondere Blume!\nAufnehmen?"
 
 	if msg == "":
 		return
@@ -2000,7 +2000,7 @@ func _refresh_quest_dialog() -> void:
 	label.text = msg
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.add_theme_font_size_override("font_size", 20)
-	label.add_theme_color_override("font_color", Color(0.1, 0.05, 0.0))
+	label.add_theme_color_override("font_color", Color.WHITE)
 	vbox.add_child(label)
 
 	if quest_state == "done" and quest_near_npc:
