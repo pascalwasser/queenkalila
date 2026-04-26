@@ -885,8 +885,8 @@ func _exit_palace() -> void:
 	if palace_interior_node != null:
 		palace_interior_node.queue_free()
 		palace_interior_node = null
-	if exit_palace_idx >= 0 and exit_palace_idx < palaces.size():
-		queen.position = palaces[exit_palace_idx].pos + Vector2(0, 60)
+	if active_palace_idx >= 0 and active_palace_idx < palaces.size():
+		queen.position = palaces[active_palace_idx].pos + Vector2(0, 60)
 	else:
 		queen.position = queen_world_pos + Vector2(0, 60)
 	_refresh_buttons()
