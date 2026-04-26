@@ -73,6 +73,7 @@ const DUST_CELL_SIZE = 30.0
 const DUST_ORIGIN_X = -165.0  # INTERIOR_ORIGIN.x - ROOM_W / 2 + WALL_T
 const DUST_ORIGIN_Y = -3770.0  # INTERIOR_ORIGIN.y - ROOM_H / 2 + WALL_T
 const DUST_SPAWN_INTERVAL = 1.0
+const DUST_SPAWN_RAMP_SLOW = 20.0  # interval (s) when room is empty after grace; ramps down to DUST_SPAWN_INTERVAL as room fills
 const DUST_GRACE_PERIOD = 300.0
 const TILE_IMMUNITY_DURATION = 300.0
 const BROOM_COST = 8
@@ -2664,6 +2665,31 @@ func _dust_key_to_room(key: Vector2i) -> int:
 	return int((DUST_ORIGIN_X + key.x * DUST_CELL_SIZE + ROOM_W / 2.0) / ROOM_W)
 
 
+func _room_cell_count(room: int) -> int:
+	var col_min := int(ceil(float(room) * ROOM_W / DUST_CELL_SIZE))
+	var col_max := int(floor((float(room) * ROOM_W + ROOM_W - 2.0 * WALL_T - DUST_CELL_SIZE) / DUST_CELL_SIZE))
+	var row_max := int(floor((ROOM_H - 2.0 * WALL_T - DUST_CELL_SIZE) / DUST_CELL_SIZE))
+	if col_max < col_min:
+		return 1
+	return (col_max - col_min + 1) * (row_max + 1)
+
+
+func _room_dirty_count(p: Dictionary, room: int) -> int:
+	var count := 0
+	for k: Vector2i in p.dirty_cells:
+		if _dust_key_to_room(k) == room:
+			count += 1
+	return count
+
+
+func _dust_spawn_interval(p: Dictionary, room: int) -> float:
+	var total := _room_cell_count(room)
+	var dirty := _room_dirty_count(p, room)
+	var ratio := minf(float(dirty) / float(total), 1.0)
+	# Geometric ramp: 20 s/tile at 0 % fill → 1 s/tile at 100 % fill
+	return pow(DUST_SPAWN_RAMP_SLOW, 1.0 - ratio)
+
+
 func _update_all_dust(delta: float) -> void:
 	for i in range(palaces.size()):
 		var p: Dictionary = palaces[i]
@@ -2681,9 +2707,10 @@ func _update_all_dust(delta: float) -> void:
 			if p.room_dust_grace_timers[room] > 0.0:
 				p.room_dust_grace_timers[room] -= delta
 				continue
+			var spawn_interval := _dust_spawn_interval(p, room)
 			p.room_dust_timers[room] += delta
-			while p.room_dust_timers[room] >= DUST_SPAWN_INTERVAL:
-				p.room_dust_timers[room] -= DUST_SPAWN_INTERVAL
+			while p.room_dust_timers[room] >= spawn_interval:
+				p.room_dust_timers[room] -= spawn_interval
 				var key := _random_floor_cell_in_room(room)
 				if not p.dirty_cells.has(key) and not p.immune_cells.has(key):
 					p.dirty_cells[key] = true
