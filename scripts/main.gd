@@ -65,7 +65,26 @@ const NPC_POS = Vector2(420.0, -300.0)
 const FLOWER_POS = Vector2(-550.0, 380.0)
 const NPC_TALK_RANGE = 80.0
 const FLOWER_PICK_RANGE = 55.0
-const QUEST_REWARD_WOOD = 10
+const WOODCHUCKER_SPEED = 50.0
+const WOODCHUCKER_CHOP_RANGE = 35.0
+const WOODCHUCKER_WAIT = 6.0
+
+const DUST_CELL_SIZE = 30.0
+const DUST_ORIGIN_X = -165.0  # INTERIOR_ORIGIN.x - ROOM_W / 2 + WALL_T
+const DUST_ORIGIN_Y = -3770.0  # INTERIOR_ORIGIN.y - ROOM_H / 2 + WALL_T
+const DUST_SPAWN_INTERVAL = 1.0
+const DUST_GRACE_PERIOD = 300.0
+const TILE_IMMUNITY_DURATION = 300.0
+const BROOM_COST = 8
+
+const NPC2_POS = Vector2(-600.0, -500.0)
+const NPC2_TALK_RANGE = 80.0
+const RABBIT_SPEED = 60.0
+const RABBIT_FLEE_SPEED = 110.0
+const RABBIT_FLEE_RANGE = 90.0
+const RABBIT_CATCH_RANGE = 42.0
+const RABBIT_WANDER_INTERVAL = 3.5
+const RABBIT_REWARD_WOOD = 15
 const ROOM_NAMES = ["Thronsaal", "Bibliothek", "Galerie", "Königskammer"]
 const ROOM_0_ITEMS = [
 	{id = "throne",    label = "Thron",          wood = 10},
@@ -110,6 +129,15 @@ var collect_button: Node2D
 var build_button: Node2D
 var berry_button: Node2D
 var game_over := false
+
+var dust_hud_layer: CanvasLayer = null
+var dust_toast_bg: ColorRect = null
+var dust_toast_label: Label = null
+var dust_toast_timer := 0.0
+const DUST_TOAST_DURATION = 3.5
+var dust_room_grace_bgs: Array = []
+var dust_room_grace_labels: Array = []
+const MAX_PALACE_ROOMS = 5
 
 var energy := ENERGY_START
 
@@ -158,14 +186,40 @@ var furnish_menu_open := false
 var furnish_menu_layer: CanvasLayer = null
 var exit_palace_idx := 0
 
-# Quest: flower delivery
-var quest_state := "waiting"  # "waiting" | "carrying" | "done"
+# Quest: flower delivery / woodchucker
+var quest_state := "waiting"  # "waiting" | "carrying" | "working"
 var quest_npc_node: Node2D = null
 var quest_flower_node: Node2D = null
 var quest_dialog_layer: CanvasLayer = null
 var quest_near_npc := false
 var quest_near_flower := false
 var quest_carried_flower_node: Node2D = null
+var woodchucker_target = null
+var woodchucker_wait := 0.0
+var woodchucker_thanked := false
+var woodchucker_chop_flash_layer: CanvasLayer = null
+var woodchucker_chop_flash_timer := 0.0
+
+# Quest 2: rabbit hunt
+var quest2_state := "locked"  # "locked" | "waiting" | "hunting" | "carrying" | "done"
+var quest2_npc_node: Node2D = null
+var quest2_dialog_layer: CanvasLayer = null
+var quest2_near_npc := false
+var quest2_thanked := false
+var rabbit_node: Node2D = null
+var rabbit_vel := Vector2.ZERO
+var rabbit_wander_timer := 0.0
+var rabbit_carried_node: Node2D = null
+
+var has_broom := false
+var carrying_broom := false
+var broom_carried_node: Node2D = null
+var broom_button: Node2D = null
+var broom_btn_bg: Polygon2D = null
+var broom_label: Label = null
+var palace_dust_nodes: Dictionary = {}  # Vector2i → ColorRect
+
+var _broom_press_cooldown := 0.0
 
 var joystick_touch_id := -1
 var joystick_origin := Vector2.ZERO
@@ -228,21 +282,71 @@ func _create_queen() -> void:
 	queen = CharacterBody2D.new()
 	queen.position = Vector2.ZERO
 
-	var body := ColorRect.new()
-	body.color = Color(0.55, 0.08, 0.75)
-	body.size = Vector2(32, 32)
-	body.position = Vector2(-16, -16)
-	queen.add_child(body)
+	# Hair (rendered first = behind head)
+	var hair := Polygon2D.new()
+	hair.color = Color(0.18, 0.10, 0.04)
+	hair.polygon = _circle_polygon(10.5)
+	hair.position = Vector2(0.0, -18.0)
+	queen.add_child(hair)
 
-	var crown := ColorRect.new()
-	crown.color = Color(1.0, 0.85, 0.0)
-	crown.size = Vector2(24, 8)
-	crown.position = Vector2(-12, -24)
+	# Dress — flared silhouette for a feminine look
+	var dress := Polygon2D.new()
+	dress.color = Color(0.52, 0.07, 0.72)
+	dress.polygon = PackedVector2Array([
+		Vector2(-6.0, -11.0), Vector2(6.0, -11.0),
+		Vector2(12.0, 4.0),   Vector2(14.0, 14.0),
+		Vector2(-14.0, 14.0), Vector2(-12.0, 4.0),
+	])
+	queen.add_child(dress)
+
+	# Dress centre stripe
+	var stripe := Polygon2D.new()
+	stripe.color = Color(0.68, 0.30, 0.88, 0.65)
+	stripe.polygon = PackedVector2Array([
+		Vector2(-3.0, -11.0), Vector2(3.0, -11.0),
+		Vector2(5.0,  14.0),  Vector2(-5.0, 14.0),
+	])
+	queen.add_child(stripe)
+
+	# Head
+	var head := Polygon2D.new()
+	head.color = Color(0.91, 0.73, 0.56)
+	head.polygon = _circle_polygon(8.5)
+	head.position = Vector2(0.0, -18.0)
+	queen.add_child(head)
+
+	# Eyes
+	for ex: float in [-3.0, 3.0]:
+		var eye := Polygon2D.new()
+		eye.color = Color(0.12, 0.06, 0.03)
+		eye.polygon = _circle_polygon(1.5)
+		eye.position = Vector2(ex, -19.0)
+		queen.add_child(eye)
+
+	# Crown — three-pointed with base band
+	var crown := Polygon2D.new()
+	crown.color = Color(1.0, 0.82, 0.05)
+	crown.polygon = PackedVector2Array([
+		Vector2(-10.0, -23.0),
+		Vector2(-10.0, -27.0), Vector2(-7.0, -35.0), Vector2(-4.0, -27.0),
+		Vector2(  0.0, -39.0),
+		Vector2(  4.0, -27.0), Vector2( 7.0, -35.0), Vector2(10.0, -27.0),
+		Vector2( 10.0, -23.0),
+	])
 	queen.add_child(crown)
+
+	# Crown gems (ruby / sapphire / emerald)
+	var gem_cols: Array[Color] = [Color(0.95, 0.12, 0.12), Color(0.15, 0.50, 1.0), Color(0.10, 0.85, 0.22)]
+	for i in range(3):
+		var gem := Polygon2D.new()
+		gem.color = gem_cols[i]
+		gem.polygon = _circle_polygon(2.0)
+		gem.position = Vector2([-6.0, 0.0, 6.0][i], -25.0)
+		queen.add_child(gem)
 
 	var col := CollisionShape2D.new()
 	var shape := RectangleShape2D.new()
-	shape.size = Vector2(32, 32)
+	shape.size = Vector2(24.0, 28.0)
 	col.shape = shape
 	queen.add_child(col)
 
@@ -624,7 +728,7 @@ func _spawn_palace(pos: Vector2) -> void:
 	var node := Node2D.new()
 	node.position = pos
 	add_child(node)
-	var data := {pos = pos, stage = 0, node = node, furniture = []}
+	var data := {pos = pos, stage = 0, node = node, furniture = [], dirty_cells = {}, immune_cells = {}, room_dust_timers = {}, room_dust_grace_timers = {}, num_rooms = 1}
 	palaces.append(data)
 	_rebuild_palace(data)
 
@@ -755,9 +859,12 @@ func _enter_palace() -> void:
 		palace_interior_node.queue_free()
 	palace_interior_node = Node2D.new()
 	add_child(palace_interior_node)
+	palaces[active_palace_idx].num_rooms = palace_num_rooms
 	for i in range(palace_num_rooms):
 		_build_room(i)
 	_draw_palace_furniture()
+	_recreate_dust_nodes()
+	_update_broom_button()
 	_spawn_servant()
 
 	# Place queen at the entered palace's room entrance
@@ -767,10 +874,14 @@ func _enter_palace() -> void:
 
 func _exit_palace() -> void:
 	_close_furnish_menu()
+	if carrying_broom:
+		carrying_broom = false
+		_detach_broom()
 	in_palace = false
 	near_kitchen = false
 	servant_node = null
 	food_ready_node = null
+	palace_dust_nodes.clear()
 	if palace_interior_node != null:
 		palace_interior_node.queue_free()
 		palace_interior_node = null
@@ -791,56 +902,68 @@ func _build_room(room_idx: int) -> void:
 	var bottom: float = cy + ROOM_H / 2.0
 
 	# Floor
-	_ri(left, top, ROOM_W, ROOM_H, Color(0.82, 0.78, 0.70))
+	_ri(left, top, ROOM_W, ROOM_H, Color(0.92, 0.88, 0.80))
 
-	# Carpet runner (north-south)
-	_ri(cx - 28.0, top + WALL_T, 56.0, ROOM_H - WALL_T * 2.0, Color(0.50, 0.08, 0.12))
+	# Carpet runner (north-south) — slightly transparent so it reads as a rug, not a wall
+	_ri(cx - 26.0, top + WALL_T, 52.0, ROOM_H - WALL_T * 2.0, Color(0.60, 0.15, 0.20, 0.80))
 	# Gold carpet trim
-	_ri(cx - 30.0, top + WALL_T, 2.0, ROOM_H - WALL_T * 2.0, Color(0.85, 0.70, 0.10))
-	_ri(cx + 28.0, top + WALL_T, 2.0, ROOM_H - WALL_T * 2.0, Color(0.85, 0.70, 0.10))
+	_ri(cx - 28.0, top + WALL_T, 2.0, ROOM_H - WALL_T * 2.0, Color(0.85, 0.70, 0.10))
+	_ri(cx + 26.0, top + WALL_T, 2.0, ROOM_H - WALL_T * 2.0, Color(0.85, 0.70, 0.10))
 
 	# Top wall (solid)
-	_ri(left, top, ROOM_W, WALL_T, Color(0.30, 0.27, 0.23))
+	_ri(left, top, ROOM_W, WALL_T, Color(0.18, 0.15, 0.12))
+	# Inner ledge highlight — suggests wall depth/thickness
+	_ri(left + WALL_T, top + WALL_T, ROOM_W - WALL_T * 2.0, 4.0, Color(0.38, 0.34, 0.28))
 	# Gold trim under top wall
-	_ri(left + WALL_T, top + WALL_T, ROOM_W - WALL_T * 2.0, 3.0, Color(0.85, 0.70, 0.10))
+	_ri(left + WALL_T, top + WALL_T + 4.0, ROOM_W - WALL_T * 2.0, 3.0, Color(0.85, 0.70, 0.10))
+	_add_wall_collider(left, top, ROOM_W, WALL_T)
 
 	# Bottom wall — exit door in every room (each room has its own palace entrance)
 	var hw: float = (ROOM_W - EXIT_W) / 2.0
-	_ri(left, bottom - WALL_T, hw, WALL_T, Color(0.30, 0.27, 0.23))
-	_ri(right - hw, bottom - WALL_T, hw, WALL_T, Color(0.30, 0.27, 0.23))
+	_ri(left, bottom - WALL_T, hw, WALL_T, Color(0.18, 0.15, 0.12))
+	_ri(right - hw, bottom - WALL_T, hw, WALL_T, Color(0.18, 0.15, 0.12))
 	_ri(left + hw - 3.0, bottom - WALL_T - 6.0, 3.0, 6.0, Color(0.55, 0.40, 0.10))
 	_ri(right - hw, bottom - WALL_T - 6.0, 3.0, 6.0, Color(0.55, 0.40, 0.10))
+	# Top-edge highlight on bottom wall pieces
+	_ri(left, bottom - WALL_T, hw, 4.0, Color(0.38, 0.34, 0.28))
+	_ri(right - hw, bottom - WALL_T, hw, 4.0, Color(0.38, 0.34, 0.28))
 
 	# Left wall — solid for room 0, door for rooms > 0
 	if room_idx == 0:
-		_ri(left, top, WALL_T, ROOM_H, Color(0.30, 0.27, 0.23))
+		_ri(left, top, WALL_T, ROOM_H, Color(0.18, 0.15, 0.12))
+		_add_wall_collider(left, top, WALL_T, ROOM_H)
 	else:
 		var dt: float = cy - DOOR_H / 2.0
 		var db: float = cy + DOOR_H / 2.0
-		_ri(left, top, WALL_T, dt - top, Color(0.30, 0.27, 0.23))
-		_ri(left, db, WALL_T, bottom - db, Color(0.30, 0.27, 0.23))
+		_ri(left, top, WALL_T, dt - top, Color(0.18, 0.15, 0.12))
+		_ri(left, db, WALL_T, bottom - db, Color(0.18, 0.15, 0.12))
 		# Door frame gold
 		_ri(left, dt - 3.0, WALL_T, 3.0, Color(0.55, 0.40, 0.10))
 		_ri(left, db, WALL_T, 3.0, Color(0.55, 0.40, 0.10))
+		_add_wall_collider(left, top, WALL_T, dt - top)
+		_add_wall_collider(left, db, WALL_T, bottom - db)
 
 	# Right wall — door if more rooms follow, solid otherwise
 	if room_idx < palace_num_rooms - 1:
 		var dt: float = cy - DOOR_H / 2.0
 		var db: float = cy + DOOR_H / 2.0
-		_ri(right - WALL_T, top, WALL_T, dt - top, Color(0.30, 0.27, 0.23))
-		_ri(right - WALL_T, db, WALL_T, bottom - db, Color(0.30, 0.27, 0.23))
+		_ri(right - WALL_T, top, WALL_T, dt - top, Color(0.18, 0.15, 0.12))
+		_ri(right - WALL_T, db, WALL_T, bottom - db, Color(0.18, 0.15, 0.12))
 		_ri(right - WALL_T, dt - 3.0, WALL_T, 3.0, Color(0.55, 0.40, 0.10))
 		_ri(right - WALL_T, db, WALL_T, 3.0, Color(0.55, 0.40, 0.10))
+		_add_wall_collider(right - WALL_T, top, WALL_T, dt - top)
+		_add_wall_collider(right - WALL_T, db, WALL_T, bottom - db)
 	else:
-		_ri(right - WALL_T, top, WALL_T, ROOM_H, Color(0.30, 0.27, 0.23))
+		_ri(right - WALL_T, top, WALL_T, ROOM_H, Color(0.18, 0.15, 0.12))
+		_add_wall_collider(right - WALL_T, top, WALL_T, ROOM_H)
 
 	# Pillars at interior corners
 	var ps: float = 16.0
 	for px in [left + WALL_T, right - WALL_T - ps]:
 		for py in [top + WALL_T, bottom - WALL_T - ps]:
-			_ri(px, py, ps, ps, Color(0.48, 0.44, 0.38))
+			_ri(px, py, ps, ps, Color(0.30, 0.27, 0.22))
 			# Pillar highlight
-			_ri(px + 2.0, py + 2.0, 4.0, 4.0, Color(0.62, 0.57, 0.50))
+			_ri(px + 2.0, py + 2.0, 4.0, 4.0, Color(0.50, 0.46, 0.40))
 
 	# Torches on left and right walls
 	for ty in [cy - 100.0, cy, cy + 100.0]:
@@ -1017,6 +1140,17 @@ func _rc(x: float, y: float, radius: float, color: Color) -> void:
 	palace_interior_node.add_child(p)
 
 
+func _add_wall_collider(x: float, y: float, w: float, h: float) -> void:
+	var sb := StaticBody2D.new()
+	sb.position = Vector2(x + w * 0.5, y + h * 0.5)
+	var col := CollisionShape2D.new()
+	var rect := RectangleShape2D.new()
+	rect.size = Vector2(w, h)
+	col.shape = rect
+	sb.add_child(col)
+	palace_interior_node.add_child(sb)
+
+
 # ── UI ────────────────────────────────────────────────────────────────────────
 
 func _create_ui() -> void:
@@ -1186,7 +1320,110 @@ func _create_ui() -> void:
 	])
 	furnish_button.add_child(f_star)
 
+	broom_button = _make_icon_button(layer, BUILD_BTN_CENTER)
+	broom_btn_bg = broom_button.get_child(0) as Polygon2D
+	var br_handle := ColorRect.new()
+	br_handle.color = Color(0.52, 0.32, 0.10)
+	br_handle.size = Vector2(4, 20)
+	br_handle.position = Vector2(-2, -22)
+	broom_button.add_child(br_handle)
+	var br_head := ColorRect.new()
+	br_head.color = Color(0.80, 0.68, 0.35)
+	br_head.size = Vector2(18, 6)
+	br_head.position = Vector2(-9, -2)
+	broom_button.add_child(br_head)
+	for bx in [-7.0, -3.0, 1.0, 5.0]:
+		var bristle := ColorRect.new()
+		bristle.color = Color(0.72, 0.60, 0.28)
+		bristle.size = Vector2(2, 5)
+		bristle.position = Vector2(bx, 4)
+		broom_button.add_child(bristle)
+	broom_label = Label.new()
+	broom_label.text = str(BROOM_COST) + " Holz"
+	broom_label.position = Vector2(-16, 10)
+	broom_label.add_theme_font_size_override("font_size", 13)
+	broom_label.add_theme_color_override("font_color", Color(0.95, 0.85, 0.35))
+	broom_button.add_child(broom_label)
+
 	_update_ui()
+	_create_dust_hud()
+
+
+func _create_dust_hud() -> void:
+	dust_hud_layer = CanvasLayer.new()
+	add_child(dust_hud_layer)
+
+	# Toast: "Saal X ist sauber!" — centered, shown briefly when a room is cleaned
+	dust_toast_bg = ColorRect.new()
+	dust_toast_bg.color = Color(0.05, 0.12, 0.05, 0.82)
+	dust_toast_bg.size = Vector2(260, 44)
+	dust_toast_bg.position = Vector2(65, 620)
+	dust_toast_bg.visible = false
+	dust_hud_layer.add_child(dust_toast_bg)
+
+	dust_toast_label = Label.new()
+	dust_toast_label.position = Vector2(65, 623)
+	dust_toast_label.size = Vector2(260, 38)
+	dust_toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	dust_toast_label.add_theme_font_size_override("font_size", 22)
+	dust_toast_label.add_theme_color_override("font_color", Color(0.4, 1.0, 0.4))
+	dust_toast_label.visible = false
+	dust_hud_layer.add_child(dust_toast_label)
+
+	# Right-side grace timer rows (one per room)
+	for i in range(MAX_PALACE_ROOMS):
+		var bg := ColorRect.new()
+		bg.color = Color(0.0, 0.0, 0.0, 0.58)
+		bg.size = Vector2(132, 28)
+		bg.position = Vector2(253, 188 + i * 32)
+		bg.visible = false
+		dust_hud_layer.add_child(bg)
+		dust_room_grace_bgs.append(bg)
+
+		var lbl := Label.new()
+		lbl.position = Vector2(257, 191 + i * 32)
+		lbl.size = Vector2(124, 22)
+		lbl.add_theme_font_size_override("font_size", 17)
+		lbl.add_theme_color_override("font_color", Color(0.45, 1.0, 0.45))
+		lbl.visible = false
+		dust_hud_layer.add_child(lbl)
+		dust_room_grace_labels.append(lbl)
+
+
+func _show_room_clean_toast(room: int) -> void:
+	dust_toast_label.text = "Saal %d ist sauber!" % (room + 1)
+	dust_toast_label.visible = true
+	dust_toast_bg.visible = true
+	dust_toast_timer = DUST_TOAST_DURATION
+
+
+func _update_dust_hud(delta: float) -> void:
+	if dust_toast_timer > 0.0:
+		dust_toast_timer -= delta
+		if dust_toast_timer <= 0.0:
+			dust_toast_label.visible = false
+			dust_toast_bg.visible = false
+
+	if not in_palace or active_palace_idx < 0 or active_palace_idx >= palaces.size():
+		for i in range(MAX_PALACE_ROOMS):
+			dust_room_grace_labels[i].visible = false
+			dust_room_grace_bgs[i].visible = false
+		return
+
+	var p: Dictionary = palaces[active_palace_idx]
+	var row := 0
+	for room in range(p.num_rooms):
+		var grace: float = p.room_dust_grace_timers.get(room, 0.0)
+		if grace > 0.0:
+			var mins := int(grace) / 60
+			var secs := int(grace) % 60
+			dust_room_grace_labels[row].text = "Saal %d: %d:%02d" % [room + 1, mins, secs]
+			dust_room_grace_labels[row].visible = true
+			dust_room_grace_bgs[row].visible = true
+			row += 1
+	for i in range(row, MAX_PALACE_ROOMS):
+		dust_room_grace_labels[i].visible = false
+		dust_room_grace_bgs[i].visible = false
 
 
 func _make_icon_button(layer: CanvasLayer, center: Vector2) -> Node2D:
@@ -1220,16 +1457,19 @@ func _refresh_buttons() -> void:
 	collect_button.visible = nearest_tree_data != null and not in_palace
 	berry_button.visible = nearest_berry_data != null and not in_palace
 	mushroom_button.visible = nearest_mushroom_data != null and not in_palace and not carrying_mushroom
-	give_button.visible = in_palace and near_kitchen and carrying_mushroom and kitchen_state == "idle"
-	eat_button.visible = in_palace and near_kitchen and kitchen_state == "ready"
+	give_button.visible = in_palace and not carrying_broom and near_kitchen and carrying_mushroom and kitchen_state == "idle"
+	eat_button.visible = in_palace and not carrying_broom and near_kitchen and kitchen_state == "ready"
+	var dusty: bool = _palace_has_dust(active_palace_idx)
 	var can_build: bool = (
 		active_palace_idx >= 0
 		and tree_inventory >= WOOD_PER_STAGE
 		and palaces[active_palace_idx].stage < TOTAL_STAGES
 		and not in_palace
+		and not dusty
 	)
 	build_button.visible = can_build
-	furnish_button.visible = in_palace and not furnish_menu_open
+	furnish_button.visible = in_palace and not furnish_menu_open and not carrying_broom and not dusty
+	broom_button.visible = in_palace
 
 
 # ── Actions ───────────────────────────────────────────────────────────────────
@@ -1713,6 +1953,11 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 
+	if broom_button.visible and tap_pos.distance_to(BUILD_BTN_CENTER) < BUILD_BTN_RADIUS:
+		_on_broom_pressed()
+		get_viewport().set_input_as_handled()
+		return
+
 	if event is InputEventScreenTouch:
 		if event.pressed and joystick_touch_id == -1:
 			joystick_touch_id = event.index
@@ -1746,6 +1991,9 @@ func _physics_process(delta: float) -> void:
 	if game_over or not is_instance_valid(queen):
 		return
 
+	if _broom_press_cooldown > 0.0:
+		_broom_press_cooldown -= delta
+
 	var dir := Vector2(
 		Input.get_axis("ui_left", "ui_right"),
 		Input.get_axis("ui_up", "ui_down")
@@ -1760,11 +2008,14 @@ func _physics_process(delta: float) -> void:
 	queen.move_and_slide()
 
 	_update_energy(delta)
+	_update_all_dust(delta)
+	_update_dust_hud(delta)
 
 	if in_palace:
 		_palace_bounds_and_exit()
 		_update_servant(delta)
 		_update_cooking(delta)
+		_update_dust_walk()
 		var was_near := near_kitchen
 		near_kitchen = queen.position.distance_to(KITCHEN_INTERACT_POS) < KITCHEN_INTERACT_RANGE
 		if near_kitchen != was_near:
@@ -1782,7 +2033,8 @@ func _physics_process(delta: float) -> void:
 		_update_nearest_mushroom()
 		_update_palace_proximity()
 		_check_palace_entry()
-		_update_quest()
+		_update_quest(delta)
+		_update_quest2(delta)
 		_refresh_buttons()
 
 
@@ -1903,16 +2155,18 @@ func _make_flower_node() -> Node2D:
 	return f
 
 
-func _update_quest() -> void:
-	if quest_state == "done":
+func _update_quest(delta: float) -> void:
+	if quest_state == "working":
 		var was_near := quest_near_npc
 		quest_near_npc = (
 			is_instance_valid(quest_npc_node)
-			and queen.position.distance_to(NPC_POS) < NPC_TALK_RANGE
+			and queen.position.distance_to(quest_npc_node.position) < NPC_TALK_RANGE
 		)
 		quest_near_flower = false
 		if quest_near_npc != was_near:
 			_refresh_quest_dialog()
+		_update_woodchucker(delta)
+		_update_chop_flash(delta)
 		return
 
 	var prev_near_npc := quest_near_npc
@@ -1936,15 +2190,80 @@ func _update_quest() -> void:
 		quest_near_flower = false
 		_attach_carried_flower()
 
-	# Deliver flower
+	# Deliver flower → NPC becomes woodchucker
 	if quest_state == "carrying" and quest_near_npc:
-		quest_state = "done"
+		quest_state = "working"
+		woodchucker_thanked = false
 		_drop_carried_flower()
-		tree_inventory += QUEST_REWARD_WOOD
-		_update_ui()
+		woodchucker_wait = 2.0
+		_refresh_quest_dialog()
+		return
 
 	if quest_near_npc != prev_near_npc or quest_near_flower != prev_near_flower:
 		_refresh_quest_dialog()
+
+
+func _update_woodchucker(delta: float) -> void:
+	if not is_instance_valid(quest_npc_node):
+		return
+
+	if woodchucker_wait > 0.0:
+		woodchucker_wait -= delta
+		return
+
+	# Find nearest grown tree if we lost our target
+	if woodchucker_target == null or not is_instance_valid(woodchucker_target.node) or woodchucker_target.growth < 1.0:
+		woodchucker_target = null
+		var best_dist := INF
+		for data in trees:
+			if not is_instance_valid(data.node) or data.growth < 1.0:
+				continue
+			var d := quest_npc_node.position.distance_to(data.node.position)
+			if d < best_dist:
+				best_dist = d
+				woodchucker_target = data
+		if woodchucker_target == null:
+			return
+
+	# Walk toward target tree
+	var to_tree: Vector2 = woodchucker_target.node.position - quest_npc_node.position
+	var dist := to_tree.length()
+	if dist < WOODCHUCKER_CHOP_RANGE:
+		# Chop!
+		woodchucker_target.node.queue_free()
+		trees.erase(woodchucker_target)
+		woodchucker_target = null
+		tree_inventory += 1
+		woodchucker_wait = WOODCHUCKER_WAIT
+		_update_ui()
+		_refresh_buttons()
+		_show_chop_flash()
+	else:
+		quest_npc_node.position += to_tree.normalized() * WOODCHUCKER_SPEED * delta
+
+
+func _show_chop_flash() -> void:
+	if woodchucker_chop_flash_layer != null and is_instance_valid(woodchucker_chop_flash_layer):
+		woodchucker_chop_flash_layer.queue_free()
+	woodchucker_chop_flash_layer = CanvasLayer.new()
+	add_child(woodchucker_chop_flash_layer)
+	var lbl := Label.new()
+	lbl.text = "+1 Holz!"
+	lbl.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	lbl.offset_top = 100
+	lbl.add_theme_font_size_override("font_size", 26)
+	lbl.add_theme_color_override("font_color", Color(0.4, 0.9, 0.3))
+	woodchucker_chop_flash_layer.add_child(lbl)
+	woodchucker_chop_flash_timer = 1.8
+
+
+func _update_chop_flash(delta: float) -> void:
+	if woodchucker_chop_flash_timer <= 0.0:
+		return
+	woodchucker_chop_flash_timer -= delta
+	if woodchucker_chop_flash_timer <= 0.0 and woodchucker_chop_flash_layer != null and is_instance_valid(woodchucker_chop_flash_layer):
+		woodchucker_chop_flash_layer.queue_free()
+		woodchucker_chop_flash_layer = null
 
 
 func _attach_carried_flower() -> void:
@@ -1960,7 +2279,6 @@ func _drop_carried_flower() -> void:
 	if quest_carried_flower_node != null and is_instance_valid(quest_carried_flower_node):
 		quest_carried_flower_node.queue_free()
 	quest_carried_flower_node = null
-	_refresh_quest_dialog()
 
 
 func _refresh_quest_dialog() -> void:
@@ -1975,8 +2293,12 @@ func _refresh_quest_dialog() -> void:
 				msg = "Bitte hilf mir!\nIch brauche die\nbesondere Blume,\ndie im Südwesten wächst."
 			"carrying":
 				msg = "Du hast sie gefunden!\nBring sie mir\nbitte!"
-			"done":
-				msg = "Vielen Dank!\nHier, nimm 10 Holz\nals Geschenk!"
+			"working":
+				if not woodchucker_thanked:
+					woodchucker_thanked = true
+					msg = "Vielen Dank!\nIch werde für Euch\nHolz hacken, Majestät!"
+				else:
+					msg = "Ich hacke Holz\nfür Euch, Majestät!"
 	elif quest_near_flower and quest_state == "waiting":
 		msg = "Eine besondere Blume!\nAufnehmen?"
 
@@ -2003,13 +2325,436 @@ func _refresh_quest_dialog() -> void:
 	label.add_theme_color_override("font_color", Color.WHITE)
 	vbox.add_child(label)
 
-	if quest_state == "done" and quest_near_npc:
+	# Auto-dismiss the delivery thank-you message
+	if quest_state == "working" and quest_near_npc:
 		var timer := get_tree().create_timer(3.0)
 		timer.timeout.connect(func() -> void:
 			if quest_dialog_layer != null and is_instance_valid(quest_dialog_layer):
 				quest_dialog_layer.queue_free()
 				quest_dialog_layer = null
 		)
+
+
+# ── Quest 2: rabbit hunt ───────────────────────────────────────────────────────
+
+func _update_quest2(delta: float) -> void:
+	if quest2_state == "locked":
+		if quest_state == "working":
+			quest2_state = "waiting"
+			_create_quest2()
+		return
+
+	# Track proximity to NPC2
+	var was_near := quest2_near_npc
+	if is_instance_valid(quest2_npc_node):
+		quest2_near_npc = queen.position.distance_to(quest2_npc_node.position) < NPC2_TALK_RANGE
+	else:
+		quest2_near_npc = false
+	if quest2_near_npc != was_near:
+		_refresh_quest2_dialog()
+
+	# First conversation: activate the hunt (dialog was already shown above — don't overwrite it)
+	if quest2_state == "waiting" and quest2_near_npc:
+		quest2_state = "hunting"
+
+	# Rabbit movement
+	if quest2_state == "hunting" and is_instance_valid(rabbit_node):
+		_update_rabbit(delta)
+		# Catch check
+		if queen.position.distance_to(rabbit_node.position) < RABBIT_CATCH_RANGE:
+			rabbit_node.queue_free()
+			rabbit_node = null
+			quest2_state = "carrying"
+			_attach_carried_rabbit()
+			_refresh_quest2_dialog()
+
+	# Deliver
+	if quest2_state == "carrying" and quest2_near_npc:
+		quest2_state = "done"
+		_drop_carried_rabbit()
+		tree_inventory += RABBIT_REWARD_WOOD
+		quest2_thanked = false
+		_update_ui()
+		_refresh_quest2_dialog()
+
+
+func _create_quest2() -> void:
+	quest2_npc_node = _make_quest2_npc_node()
+	quest2_npc_node.position = NPC2_POS
+	add_child(quest2_npc_node)
+
+	rabbit_node = _make_rabbit_node()
+	rabbit_node.position = _random_world_pos(200.0)
+	rabbit_vel = Vector2(randf_range(-1, 1), randf_range(-1, 1)).normalized() * RABBIT_SPEED
+	rabbit_wander_timer = RABBIT_WANDER_INTERVAL
+	add_child(rabbit_node)
+
+
+func _make_quest2_npc_node() -> Node2D:
+	var n := Node2D.new()
+	var body := ColorRect.new()
+	body.color = Color(0.50, 0.30, 0.12)
+	body.size = Vector2(18, 22)
+	body.position = Vector2(-9, -11)
+	n.add_child(body)
+	var head := Polygon2D.new()
+	head.color = Color(0.82, 0.65, 0.48)
+	head.polygon = _circle_polygon(9)
+	head.position = Vector2(0, -20)
+	n.add_child(head)
+	# Wide-brimmed hunter hat
+	var brim := Polygon2D.new()
+	brim.color = Color(0.28, 0.18, 0.07)
+	brim.polygon = PackedVector2Array([
+		Vector2(-14, -4), Vector2(14, -4), Vector2(10, 0), Vector2(-10, 0)
+	])
+	brim.position = Vector2(0, -28)
+	n.add_child(brim)
+	var top := ColorRect.new()
+	top.color = Color(0.28, 0.18, 0.07)
+	top.size = Vector2(16, 10)
+	top.position = Vector2(-8, -40)
+	n.add_child(top)
+	n.z_index = 5
+	return n
+
+
+func _make_rabbit_node() -> Node2D:
+	var r := Node2D.new()
+
+	# Body (white oval)
+	var body_pts := PackedVector2Array()
+	for i in range(20):
+		var a := 2.0 * PI * i / 20.0
+		body_pts.append(Vector2(cos(a) * 7.0, sin(a) * 9.0 + 2.0))
+	var body := Polygon2D.new()
+	body.color = Color(0.97, 0.97, 0.97)
+	body.polygon = body_pts
+	r.add_child(body)
+
+	# Head
+	var head := Polygon2D.new()
+	head.color = Color(0.97, 0.97, 0.97)
+	head.polygon = _circle_polygon(5.0, 16)
+	head.position = Vector2(0.0, -9.0)
+	r.add_child(head)
+
+	# Ears
+	for ex: float in [-3.5, 3.5]:
+		var ear_pts := PackedVector2Array()
+		for i in range(12):
+			var a := 2.0 * PI * i / 12.0
+			ear_pts.append(Vector2(cos(a) * 2.5, sin(a) * 6.5))
+		var ear := Polygon2D.new()
+		ear.color = Color(0.97, 0.97, 0.97)
+		ear.polygon = ear_pts
+		ear.position = Vector2(ex, -20.0)
+		r.add_child(ear)
+		var inner_pts := PackedVector2Array()
+		for i in range(12):
+			var a := 2.0 * PI * i / 12.0
+			inner_pts.append(Vector2(cos(a) * 1.2, sin(a) * 4.5))
+		var inner := Polygon2D.new()
+		inner.color = Color(0.95, 0.62, 0.68)
+		inner.polygon = inner_pts
+		inner.position = Vector2(ex, -20.0)
+		r.add_child(inner)
+
+	# Eyes (red — classic white rabbit)
+	for ex: float in [-2.0, 2.0]:
+		var eye := Polygon2D.new()
+		eye.color = Color(0.85, 0.15, 0.15)
+		eye.polygon = _circle_polygon(1.2, 8)
+		eye.position = Vector2(ex, -10.5)
+		r.add_child(eye)
+
+	# Nose
+	var nose := Polygon2D.new()
+	nose.color = Color(0.95, 0.55, 0.60)
+	nose.polygon = _circle_polygon(1.0, 8)
+	nose.position = Vector2(0.0, -7.5)
+	r.add_child(nose)
+
+	# Tail
+	var tail := Polygon2D.new()
+	tail.color = Color(1.0, 1.0, 1.0)
+	tail.polygon = _circle_polygon(3.5, 12)
+	tail.position = Vector2(0.0, 10.5)
+	r.add_child(tail)
+
+	r.z_index = 5
+	return r
+
+
+func _update_rabbit(delta: float) -> void:
+	# Flee if queen is close
+	var to_queen: Vector2 = queen.position - rabbit_node.position
+	var queen_dist := to_queen.length()
+	var speed := RABBIT_SPEED
+	if queen_dist < RABBIT_FLEE_RANGE:
+		rabbit_vel = -to_queen.normalized() * RABBIT_FLEE_SPEED
+		rabbit_wander_timer = RABBIT_WANDER_INTERVAL
+
+	# Wander direction change
+	rabbit_wander_timer -= delta
+	if rabbit_wander_timer <= 0.0 and queen_dist >= RABBIT_FLEE_RANGE:
+		rabbit_wander_timer = RABBIT_WANDER_INTERVAL + randf_range(-1.0, 1.0)
+		rabbit_vel = Vector2(randf_range(-1, 1), randf_range(-1, 1)).normalized() * speed
+
+	rabbit_node.position += rabbit_vel * delta
+
+	# Bounce off world edges
+	var margin := 80.0
+	var clamped := rabbit_node.position.clamp(-WORLD_HALF + Vector2(margin, margin), WORLD_HALF - Vector2(margin, margin))
+	if clamped != rabbit_node.position:
+		rabbit_node.position = clamped
+		rabbit_vel = Vector2(randf_range(-1, 1), randf_range(-1, 1)).normalized() * speed
+		rabbit_wander_timer = RABBIT_WANDER_INTERVAL
+
+
+func _attach_carried_rabbit() -> void:
+	rabbit_carried_node = _make_rabbit_node()
+	rabbit_carried_node.scale = Vector2(0.55, 0.55)
+	rabbit_carried_node.position = Vector2(22.0, -14.0)
+	rabbit_carried_node.z_index = 11
+	queen.add_child(rabbit_carried_node)
+	_refresh_quest2_dialog()
+
+
+func _drop_carried_rabbit() -> void:
+	if rabbit_carried_node != null and is_instance_valid(rabbit_carried_node):
+		rabbit_carried_node.queue_free()
+	rabbit_carried_node = null
+
+
+func _refresh_quest2_dialog() -> void:
+	if quest2_dialog_layer != null and is_instance_valid(quest2_dialog_layer):
+		quest2_dialog_layer.queue_free()
+	quest2_dialog_layer = null
+
+	var msg := ""
+	if quest2_near_npc:
+		match quest2_state:
+			"waiting":
+				msg = "Ich suche einen\nweißen Hasen!\nKönnt Ihr ihn fangen?"
+			"hunting":
+				msg = "Der Hase läuft\nirgendwo da\ndraußen herum!"
+			"carrying":
+				msg = "Ihr habt ihn!\nBringt ihn mir,\nbitte!"
+			"done":
+				if not quest2_thanked:
+					quest2_thanked = true
+					msg = "Vielen Dank!\nHier sind %d Holz\nfür Euch!" % RABBIT_REWARD_WOOD
+
+	if msg == "":
+		return
+
+	quest2_dialog_layer = CanvasLayer.new()
+	add_child(quest2_dialog_layer)
+
+	var bubble := PanelContainer.new()
+	bubble.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	bubble.offset_top = 60
+	bubble.offset_left = -120
+	bubble.offset_right = 120
+	quest2_dialog_layer.add_child(bubble)
+
+	var vbox := VBoxContainer.new()
+	bubble.add_child(vbox)
+
+	var label := Label.new()
+	label.text = msg
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", 20)
+	label.add_theme_color_override("font_color", Color.WHITE)
+	vbox.add_child(label)
+
+	# Auto-dismiss reward message
+	if quest2_state == "done" and quest2_near_npc:
+		var timer := get_tree().create_timer(3.0)
+		timer.timeout.connect(func() -> void:
+			if quest2_dialog_layer != null and is_instance_valid(quest2_dialog_layer):
+				quest2_dialog_layer.queue_free()
+				quest2_dialog_layer = null
+		)
+
+
+# ── Broom carry ───────────────────────────────────────────────────────────────
+
+func _make_carried_broom_node() -> Node2D:
+	var n := Node2D.new()
+	var handle := ColorRect.new()
+	handle.color = Color(0.52, 0.32, 0.10)
+	handle.size = Vector2(3, 28)
+	handle.position = Vector2(-1, -28)
+	n.add_child(handle)
+	var head := ColorRect.new()
+	head.color = Color(0.80, 0.68, 0.35)
+	head.size = Vector2(16, 5)
+	head.position = Vector2(-8, 0)
+	n.add_child(head)
+	for bx: float in [-6.0, -2.0, 2.0, 6.0]:
+		var bristle := ColorRect.new()
+		bristle.color = Color(0.65, 0.52, 0.22)
+		bristle.size = Vector2(2, 5)
+		bristle.position = Vector2(bx - 1.0, 5)
+		n.add_child(bristle)
+	return n
+
+
+func _attach_broom() -> void:
+	broom_carried_node = _make_carried_broom_node()
+	broom_carried_node.position = Vector2(-22, -8)
+	broom_carried_node.z_index = 11
+	queen.add_child(broom_carried_node)
+
+
+func _detach_broom() -> void:
+	if broom_carried_node != null and is_instance_valid(broom_carried_node):
+		broom_carried_node.queue_free()
+	broom_carried_node = null
+
+
+func _update_broom_button() -> void:
+	if not is_instance_valid(broom_label) or not is_instance_valid(broom_btn_bg):
+		return
+	if not has_broom:
+		broom_label.text = str(BROOM_COST) + " Holz"
+		broom_btn_bg.color = Color(0.15, 0.15, 0.15, 0.80)
+	elif carrying_broom:
+		broom_label.text = "Ablegen"
+		broom_btn_bg.color = Color(0.10, 0.38, 0.10, 0.90)
+	else:
+		broom_label.text = "Aufnehmen"
+		broom_btn_bg.color = Color(0.15, 0.15, 0.15, 0.80)
+
+
+func _palace_has_dust(idx: int) -> bool:
+	if idx < 0 or idx >= palaces.size():
+		return false
+	return not palaces[idx].dirty_cells.is_empty()
+
+
+# ── Dust system ───────────────────────────────────────────────────────────────
+
+func _queen_dust_key() -> Vector2i:
+	return Vector2i(
+		int(floor((queen.position.x - DUST_ORIGIN_X) / DUST_CELL_SIZE)),
+		int(floor((queen.position.y - DUST_ORIGIN_Y) / DUST_CELL_SIZE))
+	)
+
+
+func _dust_key_to_world_pos(key: Vector2i) -> Vector2:
+	return Vector2(DUST_ORIGIN_X + key.x * DUST_CELL_SIZE, DUST_ORIGIN_Y + key.y * DUST_CELL_SIZE)
+
+
+func _random_floor_cell_in_room(room: int) -> Vector2i:
+	var col_min := int(ceil(float(room) * ROOM_W / DUST_CELL_SIZE))
+	var col_max := int(floor((float(room) * ROOM_W + ROOM_W - 2.0 * WALL_T - DUST_CELL_SIZE) / DUST_CELL_SIZE))
+	var row_max := int(floor((ROOM_H - 2.0 * WALL_T - DUST_CELL_SIZE) / DUST_CELL_SIZE))
+	if col_max < col_min:
+		return Vector2i(col_min, 0)
+	return Vector2i(
+		col_min + randi() % (col_max - col_min + 1),
+		randi() % (row_max + 1)
+	)
+
+
+func _dust_key_to_room(key: Vector2i) -> int:
+	return int((DUST_ORIGIN_X + key.x * DUST_CELL_SIZE + ROOM_W / 2.0) / ROOM_W)
+
+
+func _update_all_dust(delta: float) -> void:
+	for i in range(palaces.size()):
+		var p: Dictionary = palaces[i]
+		if p.stage < TOTAL_STAGES:
+			continue
+		for key in p.immune_cells.keys():
+			p.immune_cells[key] -= delta
+			if p.immune_cells[key] <= 0.0:
+				p.immune_cells.erase(key)
+		for room in range(p.num_rooms):
+			if not p.room_dust_grace_timers.has(room):
+				p.room_dust_grace_timers[room] = 0.0
+			if not p.room_dust_timers.has(room):
+				p.room_dust_timers[room] = 0.0
+			if p.room_dust_grace_timers[room] > 0.0:
+				p.room_dust_grace_timers[room] -= delta
+				continue
+			p.room_dust_timers[room] += delta
+			while p.room_dust_timers[room] >= DUST_SPAWN_INTERVAL:
+				p.room_dust_timers[room] -= DUST_SPAWN_INTERVAL
+				var key := _random_floor_cell_in_room(room)
+				if not p.dirty_cells.has(key) and not p.immune_cells.has(key):
+					p.dirty_cells[key] = true
+					if in_palace and i == active_palace_idx and palace_interior_node != null:
+						_create_dust_node(key)
+
+
+func _create_dust_node(key: Vector2i) -> void:
+	var wp := _dust_key_to_world_pos(key)
+	var r := ColorRect.new()
+	var shade := 0.58 + randf() * 0.10
+	r.color = Color(shade, shade, shade, 0.55)
+	r.size = Vector2(DUST_CELL_SIZE, DUST_CELL_SIZE)
+	r.position = wp
+	r.z_index = 1
+	palace_interior_node.add_child(r)
+	palace_dust_nodes[key] = r
+
+
+func _recreate_dust_nodes() -> void:
+	palace_dust_nodes.clear()
+	if active_palace_idx < 0 or active_palace_idx >= palaces.size():
+		return
+	for key in palaces[active_palace_idx].dirty_cells:
+		_create_dust_node(key)
+
+
+func _update_dust_walk() -> void:
+	if not carrying_broom:
+		return
+	if active_palace_idx < 0 or active_palace_idx >= palaces.size():
+		return
+	var key := _queen_dust_key()
+	var p: Dictionary = palaces[active_palace_idx]
+	if p.dirty_cells.has(key):
+		p.dirty_cells.erase(key)
+		p.immune_cells[key] = TILE_IMMUNITY_DURATION
+		if palace_dust_nodes.has(key):
+			palace_dust_nodes[key].queue_free()
+			palace_dust_nodes.erase(key)
+		var room := _dust_key_to_room(key)
+		var room_still_dirty := false
+		for k in p.dirty_cells:
+			if _dust_key_to_room(k) == room:
+				room_still_dirty = true
+				break
+		if not room_still_dirty:
+			p.room_dust_grace_timers[room] = DUST_GRACE_PERIOD
+			p.room_dust_timers[room] = 0.0
+			_show_room_clean_toast(room)
+			_refresh_buttons()
+
+
+func _on_broom_pressed() -> void:
+	if _broom_press_cooldown > 0.0:
+		return
+	_broom_press_cooldown = 0.4
+	if not has_broom:
+		if tree_inventory < BROOM_COST:
+			return
+		tree_inventory -= BROOM_COST
+		has_broom = true
+		_update_ui()
+	if carrying_broom:
+		carrying_broom = false
+		_detach_broom()
+	else:
+		carrying_broom = true
+		_attach_broom()
+	_update_broom_button()
+	_refresh_buttons()
 
 
 func _random_world_pos(min_dist_from_origin: float) -> Vector2:

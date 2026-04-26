@@ -22,9 +22,9 @@ config/features=PackedStringArray("4.6", "Mobile")
 
 window/size/viewport_width=390
 window/size/viewport_height=844
-window/handheld/orientation="portrait"
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
+window/handheld/orientation="portrait"
 
 [rendering]
 
